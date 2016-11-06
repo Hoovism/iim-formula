@@ -1,0 +1,7 @@
+#
+# iim.conf.sample
+#
+# Note : 'local' must be a absolute path-name (start with '/').
+#
+
+local  /path/to/CPAN

@@ -1,0 +1,763 @@
+<?xml version="1.0" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<!--
+
+This file is generated from pod source by user 'csg'.
+
+Generator : trunk/admin/doc/pod2html
+Source    : trunk/admin/doc/iim.pod
+Date/time : Sat Jan 10 08:57:25 2015 [UTC]
+
+-->
+<head>
+<title>iim - an instant mirroring client for CPAN</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link rev="made" href="mailto:root@localhost" />
+</head>
+
+<body style="background-color: white">
+
+<p><a name="__index__"></a></p>
+<!-- INDEX BEGIN -->
+
+<ul>
+	<li><a href="#name">NAME</a></li>
+	<li><a href="#synopsis">SYNOPSIS</a></li>
+	<li><a href="#description">DESCRIPTION</a></li>
+	<li><a href="#options">OPTIONS</a></li>
+	<li><a href="#config_file">CONFIG FILE</a>
+	<ul>
+		<li><a href="#location">location</a></li>
+		<li><a href="#syntax">syntax</a></li>
+		<li><a href="#config_file___required_entries">config file : required entries</a></li>
+		<li><a href="#config_file___optional_entries">config file : optional entries</a></li>
+	</ul></li>
+	<li><a href="#install">INSTALL</a>
+	<ul>
+		<li><a href="#requirements">requirements</a></li>
+		<li><a href="#installation">installation</a></li>
+		<li><a href="#production">production</a></li>
+		<li><a href="#testing">testing</a></li>
+	</ul></li>
+	<li><a href="#upgrade">UPGRADE</a></li>
+	<li><a href="#todo">TODO</a></li>
+	<li><a href="#thanks">THANKS</a></li>
+	<li><a href="#author">AUTHOR</a>
+</li></ul>
+<!-- INDEX END -->
+
+<hr />
+<p>
+</p>
+<hr />
+<h1><a name="name">NAME</a></h1>
+<p>iim - an instant mirroring client for CPAN</p>
+<p>
+</p>
+<hr />
+<h1><a name="synopsis">SYNOPSIS</a></h1>
+<pre>
+  iim [-v] [-q] [-d] [-t] [-f] [-m] [-daemon tag] [-e e] [-c conf] [config-options]</pre>
+<p>
+</p>
+<hr />
+<h1><a name="description">DESCRIPTION</a></h1>
+<p>Program <strong>iim</strong> mirrors CPAN based on a set of <em>RECENT</em> (<code>RECENT-*.json</code>)
+files provided in CPAN.</p>
+<p>On start-up, <strong>iim</strong> compares the state of the local copy of CPAN with
+the master archive.
+If the <em>RECENT</em> files in the local copy indicate that it is incomplete or
+too much out-of-date, <strong>iim</strong> does a full sync first.</p>
+<p>Then,  <strong>iim</strong> periodically reads the relevant <em>RECENT</em> files from the
+master archive.
+These files contain information about recent updates.
+Program <strong>iim</strong> uses this information to fetch new files from the master,
+and delete obsolete files in the local copy.</p>
+<p>Program <strong>iim</strong> is controlled by a small configuration file ;
+see section <a href="#config_file">CONFIG FILE</a>
+-&gt; <a href="#config_file___required_entries">required entries</a>.</p>
+<p>In <em>daemon mode</em>, <strong>iim</strong> is properly backgrounded and all output
+is written to a log file.
+Some effort is made to ensure that only one daemon is active
+at any given time.</p>
+<p>The <a href="#item_scoreboard_file_path_2fto_2ffile">scoreboard</a> facility
+provides more information about the running program ;
+it is updated after every run of the main loop.</p>
+<p>The config can be <em>hot</em> or <em>not</em> ; if <em>hot</em>, <strong>iim</strong> will reload
+the config file when you change it.</p>
+<p>By default logging is terse ; <strong>iim</strong> only shows errors and
+relevant (non-periodic) updates.
+With option <a href="#item__2dv"><code>-v</code></a> it reports on all events and gives some
+state information when new events were found.
+With option <a href="#item__2dd"><code>-d</code></a> it reports on internal actions as well.
+For more information, see also config entry
+<a href="#item_loglevel_quiet_7cterse_7cverbose_7cdebug">loglevel</a>.</p>
+<p>As an option, <strong>iim</strong> can schedule periodic full rsyncs ; they are
+not necessary even when there are many and/or prolongued network
+failures.</p>
+<p>By default, <strong>iim</strong> will periodically <a href="#item_rotate_count__5binterval_5d">rotate</a>
+the logfile.</p>
+<p>For more information on <em>RECENT</em> files and instant mirroring, see</p>
+<ul>
+<li><strong><a name="item_www_2ecpan_2eorg">www.cpan.org</a></strong>
+
+<p><a href="http://www.cpan.org/misc/how-to-mirror.html#Instant_mirroring">http://www.cpan.org/misc/how-to-mirror.html#Instant_mirroring</a></p>
+</li>
+<li><strong><a name="item_search_2ecpan_2eorg">search.cpan.org</a></strong>
+
+<p><a href="http://search.cpan.org/">http://search.cpan.org/</a></p>
+<p>Look for <code>File::Rsync::Mirror::Recent</code></p>
+</li>
+</ul>
+<p>
+</p>
+<hr />
+<h1><a name="options">OPTIONS</a></h1>
+<dl>
+<dt><strong><a name="item__2dq"><strong>-q</strong></a></strong></dt>
+
+<dd>
+<p>be quiet ;
+see also config entry <a href="#item_loglevel_quiet_7cterse_7cverbose_7cdebug">loglevel</a></p>
+</dd>
+<dt><strong><a name="item__2dv"><strong>-v</strong></a></strong></dt>
+
+<dd>
+<p>be verbose ;
+see also config entry <a href="#item_loglevel_quiet_7cterse_7cverbose_7cdebug">loglevel</a></p>
+</dd>
+<dt><strong><a name="item__2dd"><strong>-d</strong></a></strong></dt>
+
+<dd>
+<p>show debug info ;
+see also config entry <a href="#item_loglevel_quiet_7cterse_7cverbose_7cdebug">loglevel</a></p>
+</dd>
+<dt><strong><a name="item__2dt"><strong>-t</strong></a></strong></dt>
+
+<dd>
+<p>only test the config</p>
+</dd>
+<dt><strong><a name="item__2df"><strong>-f</strong></a></strong></dt>
+
+<dd>
+<p>on startup, do a full sync ; commandline option <a href="#item__2df"><code>-f</code></a> overrides
+config entry <a href="#item_allow_full_syncs_0_7c1">allow_full_syncs</a> ; so,
+<code>iim -f</code> will do a full sync even if <em>allow_full_syncs</em> is <em>0</em>.</p>
+</dd>
+<dt><strong><a name="item__2ddaemon_tag"><strong>-daemon</strong> <em>tag</em></a></strong></dt>
+
+<dt><strong><a name="item__2ddaemon_path_2fto_2fdir_2ftag"><strong>-daemon</strong> <em>path/to/dir/tag</em></a></strong></dt>
+
+<dd>
+<p>run <strong>iim</strong> in <em>daemon</em> mode :
+A daemon-like <strong>iim</strong> process is started,
+unless an other <strong>iim</strong> daemon (with the same <em>tag</em>)
+is already running.
+The process is properly backgrounded.</p>
+<p>The <em>tag</em> must be alpha-numeric and directory <code>path/to/dir/</code>
+must exist.</p>
+<p>The daemon uses the current directory as it's working directory.
+It creates a directory <code>tag</code> (or <code>path/to/dir/tag</code>) containing :</p>
+<ul>
+<li><strong><a name="item_a_log_2dfile__3a_iim_2elog">a log-file : <code>iim.log</code></a></strong>
+
+</li>
+<li><strong><a name="item_a_pid_file__3a_iim_2epid">a pid file : <code>iim.pid</code></a></strong>
+
+</li>
+<li><strong><a name="item_a_lock_2dfile__3a_iim_2elck">a lock-file : <code>iim.lck</code></a></strong>
+
+</li>
+</ul>
+<p>All commandline arguments (except <code>-daemon</code>) are passed to the daemon.
+All (error) output is written to the log <em><code>tag</code></em><code>/iim.log</code>.
+The log is re-opened approximately every 5 minutes,
+to make log-rotation easier.</p>
+<p>The daemon is best killed with</p>
+<pre>
+  kill -9 `cat tag/iim.pid`</pre>
+<p>Daemon mode uses <code>Proc::Daemon</code> ; by default, the daemon
+exec's <code>$0</code> (<code>$PROGRAM_NAME</code>) ; configure <em>prog_iim</em> if
+that doesn't work for you.</p>
+</dd>
+<dt><strong><a name="item__2de_epoch"><strong>-e</strong> <em>epoch</em></a></strong></dt>
+
+<dd>
+<p>init with epoch <em>epoch</em> ; <em>epoch</em> may be given as an <em>interval-spec</em>
+(see option <a href="#item_sleep_main_loop_interval_2dspec">sleep_main_loop</a>).</p>
+<p>If <em>epoch</em> is <code>negative</code> then the epoch is set to ``time - <em>epoch</em>''.</p>
+<pre>
+  -e 1307687587.89889
+  -e -30m             # set the epoch to 30 minutes ago
+  -e -2h              # set the epoch to two hours ago</pre>
+<p>If <code>-e</code> is set, <strong>iim</strong> does no full sync on start-up ;
+it just processes the update events that happened since <em>epoch</em>.</p>
+<p>This option is for testing only.</p>
+</dd>
+<dt><strong><a name="item__2dc_config_2dfile"><strong>-c</strong> <em>config-file</em></a></strong></dt>
+
+<dd>
+<p>use configuration file <em>config-file</em></p>
+</dd>
+<dt><strong><a name="item__2dm"><strong>-m</strong></a></strong></dt>
+
+<dd>
+<p>compare the local archive with the master ; <strong>iim</strong> exec's an <code>rsync -n</code>.</p>
+</dd>
+<dt><strong><a name="item_config_options"><em>config options</em></a></strong></dt>
+
+<dd>
+<p>All config entries can be set on the commandline :</p>
+<pre>
+  --entry value</pre>
+<p>for example</p>
+<pre>
+  --local /path/to/CPAN
+  --sleep_main_loop 5m</pre>
+</dd>
+</dl>
+<p>
+</p>
+<hr />
+<h1><a name="config_file">CONFIG FILE</a></h1>
+<p>
+</p>
+<h2><a name="location">location</a></h2>
+<p>The default locations of the config file are :</p>
+<ul>
+<li><strong><a name="item__2e_2fiim_2econf"><strong>./iim.conf</strong></a></strong>
+
+</li>
+<li><strong><a name="item__home__iim_conf"><strong>$HOME/.iim.conf</strong></a></strong>
+
+</li>
+<li><strong><a name="item__2fetc_2fiim_2econf"><strong>/etc/iim.conf</strong></a></strong>
+
+</li>
+<li><strong><a name="item__2fdev_2fnull__5buse_default_config_5d"><strong>/dev/null</strong> [use default config]</a></strong>
+
+</li>
+</ul>
+<p>
+</p>
+<h2><a name="syntax">syntax</a></h2>
+<p>A config file looks like this :</p>
+<pre>
+  +--------------------------------------------------
+  |# lines that start with '#' are comment
+  |# blank lines are ignored too
+  |# tabs are replaced by a space
+  |
+  |# the config entries are 'key' and 'value' pairs
+  |# a 'key' begins in column 1
+  |# the 'value' is the rest of the line
+  |somekey  part1 part2 part3 ...
+  |otherkey part1 part2 part3 ...
+  |
+  |# keyword EMPTY represents the empty string ;
+  |# in the next line some_key's part2 is set to ''
+  |somekey part1 EMPTY part3 ...
+  |
+  |# indented lines are glued
+  |# the next three lines mean 'somekey part1 part2 part3'
+  |somekey part1
+  |  part2
+  |  part3
+  |
+  |# lines starting with a '+' are concatenated
+  |# the next three lines mean 'somekey part1part2part3'
+  |somekey part1
+  |+ part2
+  |+ part3
+  |
+  |# lines starting with a '.' are glued too
+  |# don't use a '.' on a line by itself
+  |# 'somekey' gets the value &quot;part1\n part2\n part3&quot;
+  |somekey part1
+  |. part2
+  |. part3
+  +--------------------------------------------------</pre>
+<p>
+</p>
+<h2><a name="config_file___required_entries">config file : required entries</a></h2>
+<dl>
+<dt><strong><a name="item_local_path">local <em>path</em></a></strong></dt>
+
+<dd>
+<p>Specify the (full, absolute) path to the local copy of CPAN.</p>
+<pre>
+  local /path/to/your/cpan-archive</pre>
+</dd>
+</dl>
+<p>
+</p>
+<h2><a name="config_file___optional_entries">config file : optional entries</a></h2>
+<dl>
+<dt><strong><a name="item_temp_path">temp <em>path</em></a></strong></dt>
+
+<dd>
+<p>This config entry is now <strong>obsolete</strong> ;
+please remove it from config file <code>iim.conf</code>.</p>
+</dd>
+<dt><strong><a name="item_remote_some_2ehost_2eorg_3a_3amodule">remote <em>some.host.org::module</em></a></strong></dt>
+
+<dd>
+<p>Optionally specify the rsync-module of the remote server.
+The default is :</p>
+<pre>
+  remote cpan-rsync.perl.org::CPAN</pre>
+<p>If you are testing for <em>CPAN tier1</em>, set</p>
+<pre>
+  remote cpan-rsync-master.perl.org::CPAN</pre>
+<p>Also set config entries <code>user</code> and <code>passwd</code>.</p>
+</dd>
+<dt><strong><a name="item_user_login">user <em>login</em></a></strong></dt>
+
+<dd>
+<p>Optionally specify the login name to be used in rsync connections.
+The default is EMPTY ; that is, the empty string :</p>
+<pre>
+  user EMPTY</pre>
+</dd>
+<dt><strong><a name="item_passwd_pw">passwd <em>pw</em></a></strong></dt>
+
+<dd>
+<p>Optionally specify the password to be used in rsync connections.
+The default is EMPTY ; that is, the empty string :</p>
+<pre>
+  passwd EMPTY</pre>
+<p>The password is passed to <code>rsync</code> in environment-variable
+<code>RSYNC_PASSWORD</code>.</p>
+</dd>
+<dt><strong><a name="item_sleep_main_loop_interval_2dspec">sleep_main_loop <em>interval-spec</em></a></strong></dt>
+
+<dd>
+<p>Optionally specify the interval between runs of the main-loop.
+The default is 1 minute :</p>
+<pre>
+  sleep_main_loop 1m</pre>
+<p>and five minutes in <em>daemon</em> mode.</p>
+<p>An <strong>interval-spec</strong> can be given in seconds (as in <strong>22</strong> or <strong>22s</strong>),
+minutes [<strong>m</strong>],
+hours [<strong>h</strong>],
+days [<strong>d</strong>] and/or
+weeks [<strong>w</strong>].</p>
+<p>The <em>interval-specs</em> can be combined in any order :</p>
+<pre>
+  dw      # a day and a week
+  7d+24h  # same thing
+  w-0.5h  # a week minus half an hour
+  hm6     # 3666 seconds</pre>
+</dd>
+<dt><strong><a name="item_sleep_init_epoch_interval_2dspec">sleep_init_epoch <em>interval-spec</em></a></strong></dt>
+
+<dd>
+<p>Optionally specify the interval between retries during start-up.
+The default is fifteen minutes :</p>
+<pre>
+  sleep_init_epoch 15m</pre>
+<p>A start-up is <em>retried</em> if the start-up requires a full sync
+and that sync somehow fails.</p>
+</dd>
+<dt><strong><a name="item_max_run_time_interval_2dspec">max_run_time <em>interval-spec</em></a></strong></dt>
+
+<dd>
+<p>By default <strong>iim</strong> runs for a limited time,
+so memory leaks will never become a problem.</p>
+<p>Optionally specify the maximum time <strong>iim</strong> may run.
+The default is <em>four weeks minus 15 minutes</em> :</p>
+<pre>
+  max_run_time 4w-15m</pre>
+<p>Setting <code>max_run_time</code> to <em>0</em> means <em>no limit</em>.</p>
+<p>Make sure there is a cronjob in place to start an <strong>iim</strong> daemon
+after <strong>iim</strong> exits or the mirror host is rebooted.</p>
+<pre>
+  MIN * * * * ( cd /your/path/to/iim ; perl iim -f -q -daemon production )</pre>
+<p>where <em>MIN</em> (minute) is some (randomly chosen) number between 0 and 59.</p>
+</dd>
+<dt><strong><a name="item_scoreboard_file_path_2fto_2ffile">scoreboard_file <em>path/to/file</em></a></strong></dt>
+
+<dd>
+<p>In each run of the main loop, <strong>iim</strong> writes the <em>scoreboard_file</em> ;
+it shows the current status of <strong>iim</strong>, various timers, counters etc.
+The defaul is :</p>
+<pre>
+  scoreboard_file /path/to/CPAN/local/iim/iim-scb.html</pre>
+<p>Actually, you can specify more than one file :</p>
+<pre>
+  scoreboard_file
+    /path-to-some-dir/iim-scb.html
+    /path-to-some-dir/iim-scb.json</pre>
+<p>Depending on the suffix of <em>file</em> (<code>.html</code>, <code>.php</code>, <code>.json</code>),
+<strong>iim</strong> writes a <em>html</em> page, a <em>php</em> fragament or a <em>json</em> file ;
+plain text is the default.</p>
+<p>The <em>html</em> pages are generated using a template <em>scoreboard_template</em>
+(see next item).</p>
+<p>The <em>json</em> files (also) contain the values of config entries and defaults.</p>
+<p>The <em>scoreboard_template</em> (see next item) contains CSS to properly
+format the scoreboard.</p>
+</dd>
+<dt><strong><a name="item_scoreboard_template_path_2fto_2ffile">scoreboard_template <em>path/to/file</em></a></strong></dt>
+
+<dd>
+<p>Optionally specify the path to the template for a html scoreboard.</p>
+<p>The default is :</p>
+<pre>
+  scoreboard_template /path/to/CPAN/local/iim/iim-scb-tmpl.html.sample</pre>
+<p>This file is re-written when <strong>iim</strong> starts ; to customise the scoreboard,
+copy the default and configure the new location.</p>
+<p>If you copy to another directory, fix the iim-logo <em>IMG</em> tag in
+in the template, or copy <code>iim-logo.png</code> to the other directory.</p>
+</dd>
+<dt><strong><a name="item_hot_config_0_7c1">hot_config 0|1</a></strong></dt>
+
+<dd>
+<p>Optionally specify if the config is <em>hot</em> or not. The default is <em>not hot</em> :</p>
+<pre>
+  hot_config 0</pre>
+<p>If/when the config is <em>hot</em>, <strong>iim</strong> checks the config file for changes :
+if the (timestamp of the) config file changes, it is reloaded unless an
+error is detected.</p>
+<p>Use this option with care ; watch the log!</p>
+</dd>
+<dt><strong><a name="item_loglevel_quiet_7cterse_7cverbose_7cdebug">loglevel quiet|terse|verbose|debug</a></strong></dt>
+
+<dd>
+<p>Optionally specify the level of logging ; the default is :</p>
+<pre>
+  loglevel terse</pre>
+<p>If the loglevel is <em>terse</em>, <strong>iim</strong> logs all events except updates
+of files that change very often like <code>indices/timestamp.txt</code>,
+<code>RECENT-1h.json</code> etc.</p>
+<p>If the loglevel is <em>verbose</em>, <strong>iim</strong> reports on all events.</p>
+<p>If the loglevel is <em>debug</em>, <strong>iim</strong> reports on internal actions as well.</p>
+<p>Loglevel <em>quiet</em> does not affect event logging ; it is only used
+to let <strong>iim</strong> quietly attempt to (re)start a daemon.</p>
+<p>Precedence : <a href="#item__2dd"><code>-d</code></a>, <a href="#item__2dv"><code>-v</code></a>, <a href="#item__2dq"><code>-q</code></a>, commandline option <code>--loglevel</code>,
+config entry <code>loglevel</code>.</p>
+<p>Option <a href="#item__2dq"><code>-q</code></a> isn't passed to the <em>daemon</em>, so config entry <code>loglevel</code>
+(or <code>--loglevel</code>) can be effective.</p>
+</dd>
+<dt><strong><a name="item_rotate_count__5binterval_5d">rotate count [interval]</a></strong></dt>
+
+<dd>
+<p>Optionally specify logfile rotation ; the default is</p>
+<pre>
+  rotate 8 4w</pre>
+<p>If a <em>count</em> is non-zero, <em>count</em> logfiles are rotated on start-up,
+and again after <em>interval</em>, etc.
+Logfile rotation only applies in <em>daemon mode</em>.</p>
+</dd>
+<dt><strong><a name="item_full_sync_interval_interval_2dspec">full_sync_interval <em>interval-spec</em></a></strong></dt>
+
+<dd>
+<p>Optionally specify the interval between full rsyncs.
+The default is <em>0</em>, which means <em>don't schedule full syncs</em>.</p>
+<pre>
+  full_sync_interval 0</pre>
+<p>If a full sync fails, a new full sync is scheduled to take place
+<em>sleep_init_epoch</em> later.</p>
+<p>If everything works as advertized, full syncs are not necessary.</p>
+</dd>
+<dt><strong><a name="item_allow_full_syncs_0_7c1">allow_full_syncs 0|1</a></strong></dt>
+
+<dd>
+<p>Optionally specify if full syncs are allowed or not.
+The default is <em>1</em>, which means that full syncs <em>are</em> allowed.</p>
+<pre>
+  allow_full_syncs 1</pre>
+<p>On startup, a full sync is required if the local archive is
+inconsistent (<em>RECENT files</em> are missing) or older than one day.</p>
+<p>After startup, <strong>iim</strong> will do (scheduled) full syncs if,
+and only if, <em>full_sync_interval</em> is set.</p>
+<p><strong>Iim</strong> will exit if it can't proceed without a full sync,
+and <em>allow_full_syncs</em> is <em>0</em>.</p>
+<p>This option is for <em>testing</em> ; it is used to ensure that no full syncs
+will be done in a test environment created by <code>setup-test</code>.</p>
+</dd>
+<dt><strong><a name="item_prog_rsync_path_2fto_2ffile">prog_rsync <em>path/to/file</em></a></strong></dt>
+
+<dd>
+<p>Optionally specify where your <code>rsync</code> lives ; the default is :</p>
+<pre>
+  prog_rsync /usr/bin/rsync</pre>
+</dd>
+<dt><strong><a name="item_prog_iim_path_2fto_2ffile">prog_iim <em>path/to/file</em></a></strong></dt>
+
+<dd>
+<p>Optionally specify where your program <code>iim</code> lives ; the default is :</p>
+<pre>
+  prog_iim $PROGRAM_NAME</pre>
+<p>By default, in daemon mode, <code>$PROGRAM_NAME</code> (<code>$0</code>) is used
+to (re-)exec <strong>iim</strong>.</p>
+</dd>
+<dt><strong><a name="item_timeout_interval_2dspec">timeout <em>interval-spec</em></a></strong></dt>
+
+<dd>
+<p>Optionally specify the default for rsync's <code>--timeout</code> ; the default is :</p>
+<pre>
+  timeout 300s</pre>
+<p>The value is also used to set rsync's <code>--contimeout</code>.</p>
+</dd>
+<dt><strong><a name="item_iim_umask_oct_2dinteger">iim_umask <em>oct-integer</em></a></strong></dt>
+
+<dd>
+<p>Optionally specify the <em>umask</em> <strong>iim</strong> should use ; in octal, as is usual.
+The default is :</p>
+<pre>
+  iim_umask 022</pre>
+<p>Umask <code>022</code> allows rsync to create world readable files and directories.
+Often <code>cron</code> runs with a more restrictive umask (<code>077</code>).
+This leads to permission problems in the archive.</p>
+</dd>
+<dt><strong><a name="item_include_path_2fto_2ffile">include <em>path/to/file</em></a></strong></dt>
+
+<dd>
+<p>Include another <strong>iim</strong> config file in situ. It is a fatal error
+to include the same file twice.</p>
+</dd>
+</dl>
+<p>
+</p>
+<hr />
+<h1><a name="install">INSTALL</a></h1>
+<p>
+</p>
+<h2><a name="requirements">requirements</a></h2>
+<p><strong>Iim</strong> requires Perl modules <code>JSON</code> (or <code>JSON::PP</code>) and <code>Time::HiRes</code>.
+Your yum repository may have <code>perl-Time-HiRes</code>.
+You may want to install these modules as <strong>root</strong>.</p>
+<ul>
+<li>
+<p>Get <code>cpanm</code> :</p>
+<pre>
+  # curl --compressed -LO <a href="http://xrl.us/cpanm">http://xrl.us/cpanm</a>
+  # chmod +x ./cpanm</pre>
+</li>
+<li>
+<p>Install Perl modules <code>JSON</code> (or <code>JSON::PP</code>) and <code>Time::HiRes</code> :</p>
+<pre>
+  # ./cpanm JSON
+  # ./cpanm Time::HiRes</pre>
+<p>If installing <code>JSON</code> fails, install <code>JSON::PP</code> (Pure Perl) instead.</p>
+</li>
+</ul>
+<p><strong>Iim</strong> requires that your CPAN archive is either empty or complete :
+the last rsync (if any) completed successfully.
+The archive doesn't have to be up-to-date.
+If you are not sure, run rsyncs until one succeeds.</p>
+<pre>
+  rsync -av --delete cpan-rsync.perl.org::CPAN/ /path/to/CPAN/</pre>
+<p>Later, such full rsyncs aren't necessary because <strong>iim</strong> makes sure
+the archive is always (in some sense) <em>complete</em>.</p>
+<p>
+</p>
+<h2><a name="installation">installation</a></h2>
+<p>Installation is simple :</p>
+<ul>
+<li><strong><a name="item_fetch_the_source">fetch the source</a></strong>
+
+<p>(<em>prefered</em>) checkout the svn repository :</p>
+<pre>
+  svn co https://svn.science.uu.nl/repos/sci.penni101.iim/trunk/ iim</pre>
+<p>or get the package (same stuff) from :</p>
+<pre>
+  -- <a href="http://www.staff.science.uu.nl/~penni101/iim/iim.tar.gz">http://www.staff.science.uu.nl/~penni101/iim/iim.tar.gz</a>
+  -- rsync.cs.uu.nl::iim</pre>
+<p>or get the bleeding edge from :</p>
+<pre>
+  -- <a href="http://ftp.cs.uu.nl/pub/PERL/iim-test/">http://ftp.cs.uu.nl/pub/PERL/iim-test/</a>
+  -- <a href="http://ftp.cs.uu.nl/pub/PERL/iim-test.tar.gz">http://ftp.cs.uu.nl/pub/PERL/iim-test.tar.gz</a>
+  -- rsync.cs.uu.nl::iim-test</pre>
+</li>
+<li><strong><a name="item_make_a_configuration_file">make a configuration file</a></strong>
+
+<p>Create a file <code>iim.conf</code> ; a sample is in <code>iim.conf.sample</code> :</p>
+<pre>
+  local  /path/to/CPAN</pre>
+<p>Point <em>local</em> to your CPAN archive.</p>
+<p>Specify a full (not relative) pathname like <code>/path/to/CPAN/</code>.</p>
+<p>If you are using <code>cpan-rsync-master.perl.org</code>, add</p>
+<pre>
+  remote cpan-rsync-master.perl.org::CPAN
+  user   your-cpan-username
+  passwd your-cpan-password</pre>
+</li>
+<li><strong><a name="item_check_the_config">check the config</a></strong>
+
+<pre>
+  perl iim -t</pre>
+</li>
+<li><strong><a name="item_run">run</a></strong>
+
+<p>You may want to do some <a href="#testing">testing</a>, or simply run <strong>iim</strong> with :</p>
+<pre>
+  perl iim -v</pre>
+<p><strong>Iim</strong> immediately starts tracking the changes in the
+CPAN master, picking up where the last sync left off.</p>
+<p>Only if your CPAN archive is more than 2 days old,
+a full sync is done first.</p>
+</li>
+<li><strong><a name="item_scoreboard">scoreboard</a></strong>
+
+<p>The <em>scoreboard</em> is in</p>
+<pre>
+  /path/to/CPAN/local/iim/iim-scb.html</pre>
+</li>
+<li><strong><a name="item_daemon_mode">daemon mode</a></strong>
+
+<p><strong>Iim</strong> is intended to run in the background, as a daemon process.
+Try <em>daemon mode</em> with :</p>
+<pre>
+  perl iim -daemon production</pre>
+<p>Watch the logfile with :</p>
+<pre>
+  tail -f production/iim.log</pre>
+</li>
+<li><strong><a name="item_production">production</a></strong>
+
+<p>Configure more <a href="#config_file___optional_entries">options</a>
+that fit your situation.
+See <a href="#production">the next section</a> for more tips on using <strong>iim</strong>
+in production.</p>
+<p>Make sure you have a cronjob in place to start a fresh <strong>iim</strong> daemon
+(see next section <strong>production</strong>).</p>
+</li>
+</ul>
+<p>
+</p>
+<h2><a name="production">production</a></h2>
+<p>Here are some things to keep in mind when you use <strong>iim</strong> in production :</p>
+<ul>
+<li>
+<p><strong>iim</strong> is meant to be used in <code>-daemon</code> mode.</p>
+</li>
+<li>
+<p>To prevent memory leaks from ever becoming a problem,
+<strong>iim</strong> runs for a limited time by default.</p>
+<p>To ensure that <strong>iim</strong> is always running, install a cronjob like :</p>
+<pre>
+  MIN * * * * ( cd /your/path/to/iim ; perl iim -f -q -daemon production )</pre>
+<p>where <em>MIN</em> (minute) is some (randomly chosen) number between 0 and 59.</p>
+<p>The cronjob will try to start a fresh <strong>iim</strong> daemon ; it will quietly
+exit if another daemon is already running.</p>
+<p>Option <a href="#item__2df"><code>-f</code></a> will force a full sync on startup, even if your mirror
+is reasonable up to date ; this shouldn't be necessary, but occasionally
+CPAN's <em>instant mirroring</em> appears to miss some events.
+Using <a href="#item__2df"><code>-f</code></a> corrects such errors ; normally, once a month.</p>
+<p>Use <code>crontab -l</code> to list your cronjobs.</p>
+</li>
+<li>
+<p>If you make your CPAN mirror available by rsync, please add</p>
+<pre>
+  excludes = /local/</pre>
+<p>to the [CPAN] module description in your <code>rsyncd.conf</code> file.</p>
+</li>
+<li>
+<p>After installation, program <strong>iim</strong> can be moved anywhere.</p>
+<p>You can run <strong>iim</strong> without a config file ; use a cronjob like</p>
+<pre>
+  MIN * * * * /path/to/iim -q -daemon /path/to/tag --local /path/to/CPAN</pre>
+</li>
+</ul>
+<p>
+</p>
+<h2><a name="testing">testing</a></h2>
+<p>Testing <strong>iim</strong> doesn't touch your CPAN archive, and doesn't need
+(or make) a local CPAN archive.</p>
+<p>You set up a little test environment with :</p>
+<pre>
+  perl -w setup-test [testenv]</pre>
+<p>Basicly, <strong>setup-test</strong> does :</p>
+<pre>
+  mkdir testenv
+  mkdir testenv/CPAN</pre>
+<pre>
+  # makes &quot;testenv/iim.conf&quot; containing :</pre>
+<pre>
+    local testenv/CPAN
+    sleep_main_loop 15s
+    max_run_time 15m
+    allow_full_syncs 0</pre>
+<pre>
+  # seeds the test-archive testenv/CPAN/
+  # from cpan-rsync.perl.org::CPAN/RECENT-*.json</pre>
+<p>You can check the test-config with :</p>
+<pre>
+  perl iim -t -c testenv/iim.conf</pre>
+<p>... and run the test with :</p>
+<pre>
+  perl iim -c testenv/iim.conf -v</pre>
+<p>... or try daemon mode with :</p>
+<pre>
+  perl iim -c testenv/iim.conf -v -daemon testenv</pre>
+<p>The test never does a full rsync ; it just picks up the
+CPAN updates and applies them to <code>testenv/CPAN/</code>.</p>
+<p>If you kill (or suspend) <strong>iim</strong> and restart (or resume)
+it later (say afer an hour), you can see that <strong>iim</strong>
+picks up where it was when you stopped it.</p>
+<p>If/when you test <strong>iim</strong> with a full CPAN archive, you can
+use <code>iim -m</code> to do a full compare of the local archive
+and the master ; <code>iim -m</code> just exec's the proper <code>rsync -n</code>.</p>
+<p>
+</p>
+<hr />
+<h1><a name="upgrade">UPGRADE</a></h1>
+<ul>
+<li>
+<p>Before upgrading, always check the RELEASE-NOTES in
+<a href="http://people.cs.uu.nl/henkp/iim/svn/RELEASE-NOTES">svn</a>
+or the
+<a href="http://ftp.cs.uu.nl/pub/PERL/iim-test/RELEASE-NOTES">bleeding edge</a> ;
+see top of page under <em>UPGRADE</em>.</p>
+</li>
+<li>
+<p>It is safe to do an svn update :</p>
+<pre>
+  svn up</pre>
+<p>or download the package and copy everything to your <strong>iim</strong> directory.</p>
+</li>
+</ul>
+<p>
+</p>
+<hr />
+<h1><a name="todo">TODO</a></h1>
+<ul>
+<li><strong><a name="item_randomize_full_sync_interval_2c_sleep_init_epoch">randomize full_sync_interval, sleep_init_epoch</a></strong>
+
+</li>
+<li><strong><a name="item_switch_to_git">switch to git</a></strong>
+
+</li>
+</ul>
+<p>
+</p>
+<hr />
+<h1><a name="thanks">THANKS</a></h1>
+<p>A big thanks to Andreas J. König for patiently explaining the details
+of <em>RECENT</em> files to the author.</p>
+<p>
+</p>
+<hr />
+<h1><a name="author">AUTHOR</a></h1>
+  <p>
+  &copy; 2011-2015
+  <a href="http://www.staff.science.uu.nl/~penni101/">Henk P. Penning</a>,
+  <a href="http://www.uu.nl/faculty/science/EN/">Faculty of Science</a>,
+  <a href="http://www.uu.nl/">Utrecht University</a>
+  <br />
+  iim version 0.4.13 - Sat Jan 10 08:57:24 2015 - dev revision 105
+  </p>
+  <hr /><p>
+<a href="http://validator.w3.org/check?uri=referer"><img
+src="http://www.w3.org/Icons/valid-xhtml10" style="border-width:0"
+alt="Valid XHTML 1.0 Strict" height="31" width="88" /></a>
+&nbsp;
+<a href="http://jigsaw.w3.org/css-validator/check/referer">
+<img style="border:0;width:88px;height:31px" alt="Valid CSS!"
+src="http://jigsaw.w3.org/css-validator/images/vcss" /></a>
+</p>
+</body>
+
+</html>

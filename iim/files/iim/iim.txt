@@ -1,0 +1,631 @@
+IIM(1)                User Contributed Perl Documentation               IIM(1)
+
+
+
+NAME
+       iim - an instant mirroring client for CPAN
+
+SYNOPSIS
+         iim [-v] [-q] [-d] [-t] [-f] [-m] [-daemon tag] [-e e] [-c conf] [config-options]
+
+DESCRIPTION
+       Program iim mirrors CPAN based on a set of RECENT ("RECENT-*.json")
+       files provided in CPAN.
+
+       On start-up, iim compares the state of the local copy of CPAN with the
+       master archive.  If the RECENT files in the local copy indicate that it
+       is incomplete or too much out-of-date, iim does a full sync first.
+
+       Then,  iim periodically reads the relevant RECENT files from the master
+       archive.  These files contain information about recent updates.
+       Program iim uses this information to fetch new files from the master,
+       and delete obsolete files in the local copy.
+
+       Program iim is controlled by a small configuration file ; see section
+       "CONFIG FILE" -> required entries.
+
+       In daemon mode, iim is properly backgrounded and all output is written
+       to a log file.  Some effort is made to ensure that only one daemon is
+       active at any given time.
+
+       The scoreboard facility provides more information about the running
+       program ; it is updated after every run of the main loop.
+
+       The config can be hot or not ; if hot, iim will reload the config file
+       when you change it.
+
+       By default logging is terse ; iim only shows errors and relevant (non-
+       periodic) updates.  With option "-v" it reports on all events and gives
+       some state information when new events were found.  With option "-d" it
+       reports on internal actions as well.  For more information, see also
+       config entry loglevel.
+
+       As an option, iim can schedule periodic full rsyncs ; they are not
+       necessary even when there are many and/or prolongued network failures.
+
+       By default, iim will periodically rotate the logfile.
+
+       For more information on RECENT files and instant mirroring, see
+
+       ·   www.cpan.org
+
+           <http://www.cpan.org/misc/how-to-mirror.html#Instant_mirroring>
+
+       ·   search.cpan.org
+
+           <http://search.cpan.org/>
+
+           Look for "File::Rsync::Mirror::Recent"
+
+OPTIONS
+       -q  be quiet ; see also config entry loglevel
+
+       -v  be verbose ; see also config entry loglevel
+
+       -d  show debug info ; see also config entry loglevel
+
+       -t  only test the config
+
+       -f  on startup, do a full sync ; commandline option "-f" overrides
+           config entry allow_full_syncs ; so, "iim -f" will do a full sync
+           even if allow_full_syncs is 0.
+
+       -daemon tag
+       -daemon path/to/dir/tag
+           run iim in daemon mode : A daemon-like iim process is started,
+           unless an other iim daemon (with the same tag) is already running.
+           The process is properly backgrounded.
+
+           The tag must be alpha-numeric and directory "path/to/dir/" must
+           exist.
+
+           The daemon uses the current directory as it's working directory.
+           It creates a directory "tag" (or "path/to/dir/tag") containing :
+
+           ·   a log-file : "iim.log"
+
+           ·   a pid file : "iim.pid"
+
+           ·   a lock-file : "iim.lck"
+
+           All commandline arguments (except "-daemon") are passed to the
+           daemon.  All (error) output is written to the log "tag""/iim.log".
+           The log is re-opened approximately every 5 minutes, to make log-
+           rotation easier.
+
+           The daemon is best killed with
+
+             kill -9 `cat tag/iim.pid`
+
+           Daemon mode uses "Proc::Daemon" ; by default, the daemon exec's $0
+           ($PROGRAM_NAME) ; configure prog_iim if that doesn't work for you.
+
+       -e epoch
+           init with epoch epoch ; epoch may be given as an interval-spec (see
+           option sleep_main_loop).
+
+           If epoch is "negative" then the epoch is set to "time - epoch".
+
+             -e 1307687587.89889
+             -e -30m             # set the epoch to 30 minutes ago
+             -e -2h              # set the epoch to two hours ago
+
+           If "-e" is set, iim does no full sync on start-up ; it just
+           processes the update events that happened since epoch.
+
+           This option is for testing only.
+
+       -c config-file
+           use configuration file config-file
+
+       -m  compare the local archive with the master ; iim exec's an "rsync
+           -n".
+
+       config options
+           All config entries can be set on the commandline :
+
+             --entry value
+
+           for example
+
+             --local /path/to/CPAN
+             --sleep_main_loop 5m
+
+CONFIG FILE
+   location
+       The default locations of the config file are :
+
+       ·   ./iim.conf
+
+       ·   $HOME/.iim.conf
+
+       ·   /etc/iim.conf
+
+       ·   /dev/null [use default config]
+
+   syntax
+       A config file looks like this :
+
+         +--------------------------------------------------
+         |# lines that start with '#' are comment
+         |# blank lines are ignored too
+         |# tabs are replaced by a space
+         |
+         |# the config entries are 'key' and 'value' pairs
+         |# a 'key' begins in column 1
+         |# the 'value' is the rest of the line
+         |somekey  part1 part2 part3 ...
+         |otherkey part1 part2 part3 ...
+         |
+         |# keyword EMPTY represents the empty string ;
+         |# in the next line some_key's part2 is set to ''
+         |somekey part1 EMPTY part3 ...
+         |
+         |# indented lines are glued
+         |# the next three lines mean 'somekey part1 part2 part3'
+         |somekey part1
+         |  part2
+         |  part3
+         |
+         |# lines starting with a '+' are concatenated
+         |# the next three lines mean 'somekey part1part2part3'
+         |somekey part1
+         |+ part2
+         |+ part3
+         |
+         |# lines starting with a '.' are glued too
+         |# don't use a '.' on a line by itself
+         |# 'somekey' gets the value "part1\n part2\n part3"
+         |somekey part1
+         |. part2
+         |. part3
+         +--------------------------------------------------
+
+   config file : required entries
+       local path
+           Specify the (full, absolute) path to the local copy of CPAN.
+
+             local /path/to/your/cpan-archive
+
+   config file : optional entries
+       temp path
+           This config entry is now obsolete ; please remove it from config
+           file "iim.conf".
+
+       remote some.host.org::module
+           Optionally specify the rsync-module of the remote server.  The
+           default is :
+
+             remote cpan-rsync.perl.org::CPAN
+
+           If you are testing for CPAN tier1, set
+
+             remote cpan-rsync-master.perl.org::CPAN
+
+           Also set config entries "user" and "passwd".
+
+       user login
+           Optionally specify the login name to be used in rsync connections.
+           The default is EMPTY ; that is, the empty string :
+
+             user EMPTY
+
+       passwd pw
+           Optionally specify the password to be used in rsync connections.
+           The default is EMPTY ; that is, the empty string :
+
+             passwd EMPTY
+
+           The password is passed to "rsync" in environment-variable
+           "RSYNC_PASSWORD".
+
+       sleep_main_loop interval-spec
+           Optionally specify the interval between runs of the main-loop.  The
+           default is 1 minute :
+
+             sleep_main_loop 1m
+
+           and five minutes in daemon mode.
+
+           An interval-spec can be given in seconds (as in 22 or 22s), minutes
+           [m], hours [h], days [d] and/or weeks [w].
+
+           The interval-specs can be combined in any order :
+
+             dw      # a day and a week
+             7d+24h  # same thing
+             w-0.5h  # a week minus half an hour
+             hm6     # 3666 seconds
+
+       sleep_init_epoch interval-spec
+           Optionally specify the interval between retries during start-up.
+           The default is fifteen minutes :
+
+             sleep_init_epoch 15m
+
+           A start-up is retried if the start-up requires a full sync and that
+           sync somehow fails.
+
+       max_run_time interval-spec
+           By default iim runs for a limited time, so memory leaks will never
+           become a problem.
+
+           Optionally specify the maximum time iim may run.  The default is
+           four weeks minus 15 minutes :
+
+             max_run_time 4w-15m
+
+           Setting "max_run_time" to 0 means no limit.
+
+           Make sure there is a cronjob in place to start an iim daemon after
+           iim exits or the mirror host is rebooted.
+
+             MIN * * * * ( cd /your/path/to/iim ; perl iim -f -q -daemon production )
+
+           where MIN (minute) is some (randomly chosen) number between 0 and
+           59.
+
+       scoreboard_file path/to/file
+           In each run of the main loop, iim writes the scoreboard_file ; it
+           shows the current status of iim, various timers, counters etc.  The
+           defaul is :
+
+             scoreboard_file /path/to/CPAN/local/iim/iim-scb.html
+
+           Actually, you can specify more than one file :
+
+             scoreboard_file
+               /path-to-some-dir/iim-scb.html
+               /path-to-some-dir/iim-scb.json
+
+           Depending on the suffix of file (".html", ".php", ".json"), iim
+           writes a html page, a php fragament or a json file ; plain text is
+           the default.
+
+           The html pages are generated using a template scoreboard_template
+           (see next item).
+
+           The json files (also) contain the values of config entries and
+           defaults.
+
+           The scoreboard_template (see next item) contains CSS to properly
+           format the scoreboard.
+
+       scoreboard_template path/to/file
+           Optionally specify the path to the template for a html scoreboard.
+
+           The default is :
+
+             scoreboard_template /path/to/CPAN/local/iim/iim-scb-tmpl.html.sample
+
+           This file is re-written when iim starts ; to customise the
+           scoreboard, copy the default and configure the new location.
+
+           If you copy to another directory, fix the iim-logo IMG tag in in
+           the template, or copy "iim-logo.png" to the other directory.
+
+       hot_config 0|1
+           Optionally specify if the config is hot or not. The default is not
+           hot :
+
+             hot_config 0
+
+           If/when the config is hot, iim checks the config file for changes :
+           if the (timestamp of the) config file changes, it is reloaded
+           unless an error is detected.
+
+           Use this option with care ; watch the log!
+
+       loglevel quiet|terse|verbose|debug
+           Optionally specify the level of logging ; the default is :
+
+             loglevel terse
+
+           If the loglevel is terse, iim logs all events except updates of
+           files that change very often like "indices/timestamp.txt",
+           "RECENT-1h.json" etc.
+
+           If the loglevel is verbose, iim reports on all events.
+
+           If the loglevel is debug, iim reports on internal actions as well.
+
+           Loglevel quiet does not affect event logging ; it is only used to
+           let iim quietly attempt to (re)start a daemon.
+
+           Precedence : "-d", "-v", "-q", commandline option "--loglevel",
+           config entry "loglevel".
+
+           Option "-q" isn't passed to the daemon, so config entry "loglevel"
+           (or "--loglevel") can be effective.
+
+       rotate count [interval]
+           Optionally specify logfile rotation ; the default is
+
+             rotate 8 4w
+
+           If a count is non-zero, count logfiles are rotated on start-up, and
+           again after interval, etc.  Logfile rotation only applies in daemon
+           mode.
+
+       full_sync_interval interval-spec
+           Optionally specify the interval between full rsyncs.  The default
+           is 0, which means don't schedule full syncs.
+
+             full_sync_interval 0
+
+           If a full sync fails, a new full sync is scheduled to take place
+           sleep_init_epoch later.
+
+           If everything works as advertized, full syncs are not necessary.
+
+       allow_full_syncs 0|1
+           Optionally specify if full syncs are allowed or not.  The default
+           is 1, which means that full syncs are allowed.
+
+             allow_full_syncs 1
+
+           On startup, a full sync is required if the local archive is
+           inconsistent (RECENT files are missing) or older than one day.
+
+           After startup, iim will do (scheduled) full syncs if, and only if,
+           full_sync_interval is set.
+
+           Iim will exit if it can't proceed without a full sync, and
+           allow_full_syncs is 0.
+
+           This option is for testing ; it is used to ensure that no full
+           syncs will be done in a test environment created by "setup-test".
+
+       prog_rsync path/to/file
+           Optionally specify where your "rsync" lives ; the default is :
+
+             prog_rsync /usr/bin/rsync
+
+       prog_iim path/to/file
+           Optionally specify where your program "iim" lives ; the default is
+           :
+
+             prog_iim $PROGRAM_NAME
+
+           By default, in daemon mode, $PROGRAM_NAME ($0) is used to (re-)exec
+           iim.
+
+       timeout interval-spec
+           Optionally specify the default for rsync's "--timeout" ; the
+           default is :
+
+             timeout 300s
+
+           The value is also used to set rsync's "--contimeout".
+
+       iim_umask oct-integer
+           Optionally specify the umask iim should use ; in octal, as is
+           usual.  The default is :
+
+             iim_umask 022
+
+           Umask 022 allows rsync to create world readable files and
+           directories.  Often "cron" runs with a more restrictive umask
+           (077).  This leads to permission problems in the archive.
+
+       include path/to/file
+           Include another iim config file in situ. It is a fatal error to
+           include the same file twice.
+
+INSTALL
+   requirements
+       Iim requires Perl modules "JSON" (or "JSON::PP") and "Time::HiRes".
+       Your yum repository may have "perl-Time-HiRes".  You may want to
+       install these modules as root.
+
+       ·   Get "cpanm" :
+
+             # curl --compressed -LO http://xrl.us/cpanm
+             # chmod +x ./cpanm
+
+       ·   Install Perl modules "JSON" (or "JSON::PP") and "Time::HiRes" :
+
+             # ./cpanm JSON
+             # ./cpanm Time::HiRes
+
+           If installing "JSON" fails, install "JSON::PP" (Pure Perl) instead.
+
+       Iim requires that your CPAN archive is either empty or complete : the
+       last rsync (if any) completed successfully.  The archive doesn't have
+       to be up-to-date.  If you are not sure, run rsyncs until one succeeds.
+
+         rsync -av --delete cpan-rsync.perl.org::CPAN/ /path/to/CPAN/
+
+       Later, such full rsyncs aren't necessary because iim makes sure the
+       archive is always (in some sense) complete.
+
+   installation
+       Installation is simple :
+
+       ·   fetch the source
+
+           (prefered) checkout the svn repository :
+
+             svn co https://svn.science.uu.nl/repos/sci.penni101.iim/trunk/ iim
+
+           or get the package (same stuff) from :
+
+             -- http://www.staff.science.uu.nl/~penni101/iim/iim.tar.gz
+             -- rsync.cs.uu.nl::iim
+
+           or get the bleeding edge from :
+
+             -- http://ftp.cs.uu.nl/pub/PERL/iim-test/
+             -- http://ftp.cs.uu.nl/pub/PERL/iim-test.tar.gz
+             -- rsync.cs.uu.nl::iim-test
+
+       ·   make a configuration file
+
+           Create a file "iim.conf" ; a sample is in "iim.conf.sample" :
+
+             local  /path/to/CPAN
+
+           Point local to your CPAN archive.
+
+           Specify a full (not relative) pathname like "/path/to/CPAN/".
+
+           If you are using "cpan-rsync-master.perl.org", add
+
+             remote cpan-rsync-master.perl.org::CPAN
+             user   your-cpan-username
+             passwd your-cpan-password
+
+       ·   check the config
+
+             perl iim -t
+
+       ·   run
+
+           You may want to do some testing, or simply run iim with :
+
+             perl iim -v
+
+           Iim immediately starts tracking the changes in the CPAN master,
+           picking up where the last sync left off.
+
+           Only if your CPAN archive is more than 2 days old, a full sync is
+           done first.
+
+       ·   scoreboard
+
+           The scoreboard is in
+
+             /path/to/CPAN/local/iim/iim-scb.html
+
+       ·   daemon mode
+
+           Iim is intended to run in the background, as a daemon process.  Try
+           daemon mode with :
+
+             perl iim -daemon production
+
+           Watch the logfile with :
+
+             tail -f production/iim.log
+
+       ·   production
+
+           Configure more options that fit your situation.  See the next
+           section for more tips on using iim in production.
+
+           Make sure you have a cronjob in place to start a fresh iim daemon
+           (see next section production).
+
+   production
+       Here are some things to keep in mind when you use iim in production :
+
+       ·   iim is meant to be used in "-daemon" mode.
+
+       ·   To prevent memory leaks from ever becoming a problem, iim runs for
+           a limited time by default.
+
+           To ensure that iim is always running, install a cronjob like :
+
+             MIN * * * * ( cd /your/path/to/iim ; perl iim -f -q -daemon production )
+
+           where MIN (minute) is some (randomly chosen) number between 0 and
+           59.
+
+           The cronjob will try to start a fresh iim daemon ; it will quietly
+           exit if another daemon is already running.
+
+           Option "-f" will force a full sync on startup, even if your mirror
+           is reasonable up to date ; this shouldn't be necessary, but
+           occasionally CPAN's instant mirroring appears to miss some events.
+           Using "-f" corrects such errors ; normally, once a month.
+
+           Use "crontab -l" to list your cronjobs.
+
+       ·   If you make your CPAN mirror available by rsync, please add
+
+             excludes = /local/
+
+           to the [CPAN] module description in your "rsyncd.conf" file.
+
+       ·   After installation, program iim can be moved anywhere.
+
+           You can run iim without a config file ; use a cronjob like
+
+             MIN * * * * /path/to/iim -q -daemon /path/to/tag --local /path/to/CPAN
+
+   testing
+       Testing iim doesn't touch your CPAN archive, and doesn't need (or make)
+       a local CPAN archive.
+
+       You set up a little test environment with :
+
+         perl -w setup-test [testenv]
+
+       Basicly, setup-test does :
+
+         mkdir testenv
+         mkdir testenv/CPAN
+
+         # makes "testenv/iim.conf" containing :
+
+           local testenv/CPAN
+           sleep_main_loop 15s
+           max_run_time 15m
+           allow_full_syncs 0
+
+         # seeds the test-archive testenv/CPAN/
+         # from cpan-rsync.perl.org::CPAN/RECENT-*.json
+
+       You can check the test-config with :
+
+         perl iim -t -c testenv/iim.conf
+
+       ... and run the test with :
+
+         perl iim -c testenv/iim.conf -v
+
+       ... or try daemon mode with :
+
+         perl iim -c testenv/iim.conf -v -daemon testenv
+
+       The test never does a full rsync ; it just picks up the CPAN updates
+       and applies them to "testenv/CPAN/".
+
+       If you kill (or suspend) iim and restart (or resume) it later (say afer
+       an hour), you can see that iim picks up where it was when you stopped
+       it.
+
+       If/when you test iim with a full CPAN archive, you can use "iim -m" to
+       do a full compare of the local archive and the master ; "iim -m" just
+       exec's the proper "rsync -n".
+
+UPGRADE
+       ·   Before upgrading, always check the RELEASE-NOTES in svn
+           <http://people.cs.uu.nl/henkp/iim/svn/RELEASE-NOTES> or the
+           bleeding edge <http://ftp.cs.uu.nl/pub/PERL/iim-test/RELEASE-NOTES>
+           ; see top of page under UPGRADE.
+
+       ·   It is safe to do an svn update :
+
+             svn up
+
+           or download the package and copy everything to your iim directory.
+
+TODO
+       ·   randomize full_sync_interval, sleep_init_epoch
+
+       ·   switch to git
+
+THANKS
+       A big thanks to Andreas J. Koenig for patiently explaining the details
+       of RECENT files to the author.
+
+AUTHOR
+         (c) 2011-2015 Henk P. Penning
+         Faculty of Science, Utrecht University
+         http://www.staff.science.uu.nl/~penni101/ -- penning@uu.nl
+         iim version 0.4.13 - Sat Jan 10 08:57:24 2015 - dev revision 105
+
+
+
+perl v5.18.2                      2015-01-10                            IIM(1)

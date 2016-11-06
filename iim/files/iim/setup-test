@@ -1,0 +1,187 @@
+#! /usr/bin/perl
+
+# ---------------------------------------------------------------------
+# Copyright (c) 2011-2015 Henk P. Penning.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are
+# met:
+#
+#   1. Redistributions of source code must retain the above copyright
+#   notice,
+#      this list of conditions and the following disclaimer.
+#
+#   2. Redistributions in binary form must reproduce the above copyright
+#      notice, this list of conditions and the following disclaimer in the
+#      documentation and/or other materials provided with the
+#      distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY Henk P. Penning, ``AS # IS'' AND ANY
+# EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+# PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL Henk P.  Penning OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+# EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+# PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+# LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+# NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# The views and conclusions contained in the software and documentation
+# are those of the author and should not be interpreted as representing
+# official policies, either expressed or implied, of anyone/thing else.
+# ---------------------------------------------------------------------
+# "Simplified BSD License" or "FreeBSD License"
+# http://en.wikipedia.org/wiki/BSD_licenses
+# ---------------------------------------------------------------------
+# Note : a version of Proc::Daemon may be included in this package ;
+# See the Proc::Daemon copyright notice.
+# ---------------------------------------------------------------------
+
+use strict ;
+use warnings ;
+
+
+my $REMO = 'cpan-rsync.perl.org::CPAN' ;
+my $TST  = 'testenv' ;
+my @RFS  = qw
+  ( RECENT-1h.json
+    RECENT-6h.json
+    RECENT-1d.json
+    RECENT-1W.json
+    RECENT-1M.json
+    RECENT-1Q.json
+    RECENT-1Y.json
+    RECENT-Z.json
+  ) ;
+my $RDEF = '/usr/bin/rsync' ;
+my $RSYN = $RDEF ;
+
+my $prog = substr($0,rindex($0,'/')+1) ;
+my $Usage = <<USAGE ;
+Usage: $prog [-v] [-q] [-d] [-remote <remote>] [-prog_rsync <path>] [directory]
+option v : be verbose
+option q : be quiet
+option d : show debug info
+option remote : use remote ; default "$REMO"
+option prog_rsync : prog rsync ; default "$RDEF"
+argument : the name of the (to-be-created) test-directory
+           default : '$TST'
+------------------------------------------------------
+$prog : create a test environment for iim
+-- it creates test-directory/CPAN/
+-- it rsyncs files $REMO/RECENT-*.json
+     into test-directory/CPAN/ ;
+-- it creates test-directory/iim.conf
+USAGE
+sub Usage { die "$_[0]$Usage" ; }
+sub Error { die "$prog: $_[0]\n" ; }
+sub Warn  { warn "$prog: $_[0]\n" ; }
+
+# usage: &GetOptions(ARG,ARG,..) defines $opt_ID as 1 or user spec'ed value
+# usage: &GetOptions(\%opt,ARG,ARG,..) defines $opt{ID} as 1 or user value
+# ARG = 'ID' | 'ID=SPC' | 'ID:SPC' for no-arg, required-arg or optional-arg
+# ID  = perl identifier
+# SPC = i|f|s for integer, fixedpoint real or string argument
+
+use Getopt::Long ;
+Getopt::Long::config('no_ignore_case') ;
+my %opt = () ; Usage('') unless GetOptions
+  ( \%opt, qw(v q d remote=s prog_rsync=s _conf) ) ;
+Usage("Arg count\n") unless @ARGV <= 1 ;
+
+$opt{v} ||= $opt{d} ;
+$REMO = $opt{remote} if $opt{remote} ;
+$RSYN = $opt{prog_rsync} if $opt{prog_rsync} ;
+
+$TST = shift if @ARGV ;
+chop $TST if $TST =~ m!/$! ;
+my $ABS = $TST ;
+unless ( $ABS =~ m!^/! )
+  { my $PWD = `pwd` ; chop $PWD ; $ABS = "$PWD/$ABS" ; }
+
+my $sep = "######################" ;
+
+unless ( -f $RSYN )
+  { my $prog = `which rsync 2>/dev/null` ;
+    Error "can't find prog rsync as $RSYN ;\n"
+        . "  -> use --prog_rsync /path/to/rsync"
+      unless $prog ;
+    chop $prog ;
+    $RSYN = $prog ;
+  }
+
+sub mk_conf
+  { my $dir = shift ;
+    my $res = <<CONF ;
+local $dir/CPAN
+sleep_main_loop 15s
+max_run_time 15m
+allow_full_syncs 0
+CONF
+    $res .= "prog_rsync $RSYN\n" if $RSYN ne $RDEF ;
+    $res ;
+  }
+
+if ( $opt{_conf} )
+  { my $conf = mk_conf 'testenv' ;
+    chomp $conf ;
+    printf "%s\n",  join "\n    ", split /\n/, $conf ;
+    exit ;
+  }
+
+Error "$TST already exists (as a file)" if -f $TST ;
+
+for my $dir ( $TST, "$TST/CPAN" )
+  { next if -d $dir ;
+    mkdir $dir, 0755 or Error "can't mkdir $dir ($!)" ;
+    printf "created directory $dir/\n" if $opt{v} ;
+  }
+
+my $remo = $REMO ;
+my $rfs  = join "\n      ", @RFS ;
+my $from = "$remo/RECENT-*.json" ;
+my @cmd = 
+  ( $RSYN
+  , '-avz'
+  , '--no-motd'
+  , '--timeout'    => 60
+  , '--contimeout' => 60
+  , $from
+  , "$TST/CPAN"
+  ) ;
+my $cmd = join ' ', @cmd ;
+print "seeding $TST/CPAN/ with : $from\n" ;
+print "$sep\n" ;
+print "$cmd\n" if $opt{v} ;
+system ( @cmd ) == 0 or Error "seeding with [$cmd] failed ($?)" ;
+my $all = 1 ;
+for my $rf ( @RFS )
+  { unless ( -f "$TST/CPAN/$rf" )
+      { printf "$prog : failed to get $rf\n" ; $all = 0 ; }
+  }
+$all or Error "fetching didn't work ; sorry" ;
+
+my $Conf = mk_conf $ABS ;
+my $CONF = "$TST/iim.conf" ;
+open CONF, ">$CONF" or Error "can't write $CONF ($!)" ;
+print CONF $Conf ;
+close CONF ;
+
+printf "$prog : your test-config is :\n$sep\n%s$sep\n", $Conf ;
+
+$sep = '---------------------------------------------------' ;
+if ( -f 'iim' )
+  { my $cmd = "perl -w iim -t -c $TST/iim.conf" ;
+    printf "$prog : running test ... : %s\n$sep\n", $cmd ;
+    system $cmd ; Error "can't do '$cmd' ($?)" if $? ;
+  }
+
+print <<END ;
+$sep
+test the config : iim -c $TST/iim.conf -v -t
+you can now run : iim -c $TST/iim.conf -v
+or daemon mode  : iim -c $TST/iim.conf -v --daemon $TST
+END

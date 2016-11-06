@@ -1,0 +1,249 @@
+UPGRADE :
+
+It is safe to upgrade iim ; since the first version, the config file
+format hasn't changed.
+
+o Iim now runs only for a limited time by default. Make sure you have
+  a cronjob in place to start a fresh daemon if no daemon is running :
+
+  MIN * * * * ( cd /your/path/to/iim ; perl iim -f -q -daemon production )
+
+  where MIN (minute) is some (randomly chosen) number between 0 and 59.
+  You can list your cronjobs with "crontab -l".
+
+o All optional config entries now have 'sane' defaults.
+  The config-file "iim.conf" should probably just contain one line :
+
+    local /path/to/CPAN/
+
+  Optional config entries :
+
+  -- temp /path/to/CPAN-tmp
+
+     This entry is obsolete and should be removed ; directory
+     "/path/to/CPAN-tmp" can be removed too (if only used by "iim").
+
+  -- scoreboard_file /path/to/scoreboard.html
+  -- max_run_time ...
+  -- rotate ...
+
+     You can remove these entries from "iim.conf".
+     File "/path/to/scoreboard.html" can be removed too.
+
+o If you make CPAN available by rsync, you must add
+
+    excludes = /local/
+
+  to your [CPAN] module in your rsyncd.conf file, because stuff
+  in "/path/to/CPAN/local" shouldn't go to downstream mirrors.
+
+NOTES :
+
+----------------------------------------------------------------
+iim-0.4.13 Fri Jan  9 11:22:24 2015 UTC
+
+o Rsync's default --stats output changed to 'scientific notation' :
+  1,234,567,890 instead of 1234567890. Fixed parsing of stats.
+
+o Recommend using -f in the cronjob, because occasionally RECENT
+  events are missing ; -f causes a full sync on startup.
+
+----------------------------------------------------------------
+iim-0.4.12 Fri Dec 13 17:18:24 CET 2013
+
+o Added iim.pod to iim ; to make "perldoc iim" work.
+
+----------------------------------------------------------------
+iim-0.4.11 Mon Dec  9 12:44:11 CET 2013
+
+o Iim can now run anywhere ; a config file is no longer required.
+  Only module Time::HiRes is required, since Proc::Daemon is
+  included in iim, and JSON::PP is in core.
+  The distro now only contains prog + doc.
+
+o Blib.pm, RF.pm, the logo and scoreboard template are now rolled
+  into program "iim" ; the logo and scoreboard-template are copied
+  into "/path/to/cpan/local/iim/" on startup.
+
+o Proc::Daemon is included in "iim". Added config-option "prog_iim",
+  default "$0" ($PROGRAM_NAME) ; the daemon exec's <prog_iim>.
+
+o Greatly simplified 'setup-test' ; it seeds "testenv/CPAN" with
+  RECENTS from the defaullt 'remote' (cpan-rsync.perl.org::CPAN) ;
+  because it should run without (access to) a local CPAN archive.
+
+----------------------------------------------------------------
+iim-0.4.9 Fri Oct 11 08:59:06 CEST 2013
+
+o Fixed a memory leak, introduced in iim-0.4.6, caused by a recursive closure.
+
+----------------------------------------------------------------
+iim-0.4.8 Wed Aug 14 10:25:25 CEST 2013
+
+o Added 'age local' to the scoreboard.
+
+o Use File::Copy to copy the iim-logo.
+
+----------------------------------------------------------------
+iim-0.4.7 Wed Jul 24 11:00:02 CEST 2013
+
+o Fixed a bug ; sometimes JSON::PP can't do "JSON->new()".
+
+o On startup do a full sync, if some Recents are missing ;
+  because iim failed to start on an empty 'local'.
+
+----------------------------------------------------------------
+iim-0.4.6 Tue Jun  4 08:35:06 CEST 2013
+
+o Fixed the import/export code ; to prepare for an 'all-in-one' iim.
+
+----------------------------------------------------------------
+iim-0.4.5 Thu May 23 17:45:27 CEST 2013
+
+o Fixed display of timers to show max <n> most signicant non-zero units.
+
+o The default for config entry "max_run_time" is now '4w-15m'.
+  The default for config entry "rotate" is now '4w'.
+
+o The html pages are now "XHTML 1.0 Strict" compliant.
+
+----------------------------------------------------------------
+iim-0.4.4 Fri May 17 14:24:35 CEST 2013
+
+o The iim-logo is added to the distribution, because the logo can
+  now be easily copied (by iim) to "/path/to/CPAN/local/iim/".
+  The scoreboard template "iim-scb-tmpl.html.sample" has changed.
+
+o Added `hostname` to the scoreboard.
+
+----------------------------------------------------------------
+iim-0.4.3 Thu May 16 17:32:43 CEST 2013
+
+o Some defaults have changed : 
+    max_run_time    1w-15m
+    rotate          8 1w
+    scoreboard_file /path/to/CPAN/local/iim/iim-scb.html
+
+----------------------------------------------------------------
+iim-0.4.2 Wed May 15 09:19:28 CEST 2013
+
+o Config entry "temp" is now obsolete ; iim creates and uses 
+  /path/to/CPAN/local/iim/ for temp files and (by default) the
+  scoreboard file. A "excludes = /local/" must be added to your
+  /etc/rsyncd.conf for module [CPAN].
+
+o Iim tries to use (in order) package JSON::XS, JSON::PP or JSON.
+  The 'installation' doc recommends to install JSON::PP if installing
+  JSON fails, for instance because gcc isn't available to compile
+  JSON::XS.
+
+----------------------------------------------------------------
+iim-0.4.1 Thu Apr 18 12:33:00 CET 2013
+
+o CSS moved from iim-scb.css.sample into iim-scb-tmpl.html.sample ;
+  one less file to copy during installation.
+
+o Fixed refs to "people.cs.uu.nl/henkp/".
+
+----------------------------------------------------------------
+iim-0.4.0 Wed Mar 13 10:50:21 CET 2013
+
+o Minor change in Blib.pm.
+
+o Fixed ref to W3C logo ; add ".png".
+
+----------------------------------------------------------------
+iim-0.3.52 Sun Nov 25 19:08:35 CET 2012
+
+o Added iim option "-B path" to generate a "bogus new event" ; for testing.
+
+o Bogus new events are now detected by looking for partial transfers
+  with "number of files: 0" in single-file rsyncs.
+
+o Cleanup init of events ; events now have a link to 'base'.
+
+o Include --delete in dry-runs.
+
+----------------------------------------------------------------
+iim-0.3.51 Tue Nov 13 15:54:02 CET 2012
+
+o Made some changes in score keeping and board.
+
+o Documented option timeout.
+
+o Sync Recents directly into area temp ; keep scores by tracking ino's.
+  Remove params from various procs. Drop all references to area sync.
+
+----------------------------------------------------------------
+iim-0.3.50 Sat Nov 10 12:43:38 CET 2012
+
+o Added option timeout <timespec> ; added rsync --contimeout.
+
+o Sync non-Recents directly into local ; to take advantage of
+  rsyncs 'matched data' magic ; updated "how it works".
+
+o Use rsync -T (create tmp-files in a separate directory) ;
+  in preparation of syncing non-Recents into local.
+
+o Require full path's for config entries local and temp ;
+  because rsync -T tmp-dir requires an absolute path ;
+  fixed setup-test accordingly.
+
+o check Proc::Daemon ; many distro's have an ancient version.
+
+----------------------------------------------------------------
+iim-0.3.49 Wed Sep 12 13:24:10 CEST 2012
+
+o scoreboard shows rsync sent/received stats ; total and -> recents.
+
+----------------------------------------------------------------
+iim-0.3.48 Thu Apr 19 12:51:22 CEST 2012
+
+o Using "utime", proper 'atime' and 'mtime' attributes are set for
+  directories, when their contents changes ; a dry-run compare
+  with the master (iim -m) reports only a few directories now.
+
+----------------------------------------------------------------
+iim-0.3.47 Fri Apr 13 08:06:28 CEST 2012
+
+o The json scoreboard now contains the config ; as documented.
+
+o Updated 'how it works' ; reversed the order of RECENTs, because
+  it make more sense in view of the ordering of events where
+  'smaller' means 'older', as is usual for sets of 'time-like'
+  elements.
+
+----------------------------------------------------------------
+iim-0.3.46 Sat Apr  7 16:28:34 CEST 2012
+
+o set default 'sleep_main_loop' to 5 minutes in daemon mode.
+
+----------------------------------------------------------------
+
+iim-0.3.45 Sat Apr  7 15:43:39 CEST 2012
+
+o Added log rotation.
+
+----------------------------------------------------------------
+iim-0.3.44 Fri Apr 6 15:22:23 2012 UTC
+
+o Read rsync --stats from a pipe ; display bandwidth in scoreboard.
+
+0 Get rid of the 'pigs' ; an obsolete scheme to piggybag Recents.
+
+----------------------------------------------------------------
+iim-0.3.43 Sun Apr 1 12:40:29 2012 UTC
+
+o Added 'bandwidth' to the scoreboard, based on 'files fetched'.
+
+----------------------------------------------------------------
+iim-0.3.42 Sun Mar 25 10:54:02 CEST 2012
+
+o Added Release Notes.
+
+o Added documentation : how to install required items ; how to upgrade.
+
+----------------------------------------------------------------
+iim-0.3.41 Fri Mar 23 11:51:24 CET 2012
+
+o set umask ; default : 022.

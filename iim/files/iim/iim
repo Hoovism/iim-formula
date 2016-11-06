@@ -1,0 +1,4920 @@
+#! /usr/bin/perl
+
+# ---------------------------------------------------------------------
+# Copyright (c) 2011-2015 Henk P. Penning.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are
+# met:
+#
+#   1. Redistributions of source code must retain the above copyright
+#   notice,
+#      this list of conditions and the following disclaimer.
+#
+#   2. Redistributions in binary form must reproduce the above copyright
+#      notice, this list of conditions and the following disclaimer in the
+#      documentation and/or other materials provided with the
+#      distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY Henk P. Penning, ``AS # IS'' AND ANY
+# EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+# PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL Henk P.  Penning OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+# EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+# PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+# LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+# NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# The views and conclusions contained in the software and documentation
+# are those of the author and should not be interpreted as representing
+# official policies, either expressed or implied, of anyone/thing else.
+# ---------------------------------------------------------------------
+# "Simplified BSD License" or "FreeBSD License"
+# http://en.wikipedia.org/wiki/BSD_licenses
+# ---------------------------------------------------------------------
+# Note : a version of Proc::Daemon may be included in this package ;
+# See the Proc::Daemon copyright notice.
+# ---------------------------------------------------------------------
+
+use strict ;
+use warnings ;
+
+
+
+package Blib ; ##############################################################
+
+use Exporter ;
+use Carp ;
+
+our ( @EXPORT, @EXPORT_OK, @ISA ) ;
+BEGIN
+  { require Exporter ;
+    @EXPORT    = qw() ;
+    @EXPORT_OK = qw(mk_method mk_methods new_pack unref) ;
+    @ISA       = qw(Exporter)
+  }
+
+our %LOGLEVELS =
+  ( quiet   => 0
+  , terse   => 1
+  , verbose => 2
+  , debug   => 3
+  ) ;
+
+our $MEEK = {} ;
+
+sub unref ;
+sub MEEK { $MEEK } ;
+sub MEEK_incr
+  { my $pack = unref shift ;
+    $MEEK -> { $pack } { incr } ++ ;
+  }
+sub MEEK_decr
+  { my $pack = unref shift ;
+    $MEEK -> { $pack } { decr } ++ ;
+  }
+sub MEEK_dump
+  { join '', map
+      { my $incr = $MEEK -> { $_ } { incr } || 0 ;
+        my $decr = $MEEK -> { $_ } { decr } || 0 ;
+        sprintf "%6s %6s %s\n", $incr, $incr - $decr, $_ ;
+      } sort keys %$MEEK ;
+  }
+
+# DESTROY { my $self = shift ; MEEK_decr ( $self ) ; }
+
+sub unref { my $self = shift ; ref $self or $self ; }
+sub _bless
+  { my $val = shift ;
+    my $pac = shift ;
+#   MEEK_incr ( $pac ) ;
+    Carp::confess sprintf "_bless : not a ref val[%s]\n"
+      , ( defined $val ? $val : '<undef>' ) unless ref $val ;
+    bless $val, $pac ;
+  }
+
+sub _is_loglevel
+  { my $self = shift ; my $cand = shift ; exists $LOGLEVELS { $cand } ; }
+sub _loglevels
+  { my $self = shift ;
+    sort { $LOGLEVELS { $a } <=> $LOGLEVELS { $b } ; } keys %LOGLEVELS ;
+  }
+
+sub _pr
+  { my @args = @_ ;
+    if ( Blib::Mods -> can ( 'print' ) )
+      { Blib::Mods::print ( @args ) ; }
+    else
+      { print @args ; }
+  }
+
+sub _pf
+  { my @args = @_ ;
+    if ( Blib::Mods -> can ( 'printf' ) )
+      { Blib::Mods::printf ( @args ) ; }
+    else
+      { printf @args ; }
+  }
+
+sub _pr_hash
+  { die "_pr_hash : need 2 args" unless @_ == 2 ;
+    my $tag  = shift ;
+    my $hash = shift ;
+    _pf "%s :\n\{%s\n\}\n", $tag , join "\n, ", map
+      { my $val = $hash -> { $_ } ;
+        sprintf "%s=>%s", $_, ( defined $val ? $val : 'UNDEF' )
+      } sort keys %$hash ;
+  }
+
+my %Opts = () ;
+sub Opts
+  { my $self = shift ;
+    $Opts { $self } = { q => 0 , t => 0 , v => 0 , d => 0 , self => $self }
+      unless exists $Opts { $self } ;
+    $Opts { $self } ;
+  }
+
+sub dmp_opt
+  { my $hash = shift ;
+    sprintf "{%s}\n"
+      , join ' , '
+      , map { "$_=>$hash->{$_}" }
+        ( 'self', sort grep { $_ ne 'self' } keys %{ $hash } ) ;
+  }
+
+my $level = 0 ;
+sub lvl { my $lvl = shift ; $level = $lvl if defined $lvl ; $lvl ; }
+sub xx1 { Blib::_pr ( @_ ) if $level > 0 ; }
+sub xx2 { Blib::_pr ( @_ ) if $level > 1 ; }
+
+sub _opt
+  { my $self = shift ;
+    my ( $recurse, $key, $val ) = @_ ;
+
+    unless ( $self ) { xx1 "self empty ; result=0" ; return 0 ; }
+
+    my $opts   = Opts $self ;
+    my $parent = $self -> parent ;
+
+    my $v = ( defined $val ? $val : '<undef>' ) ;
+    xx1 "self ($self) key ($key) val ($v) recurse ($recurse)\n" ;
+    xx1 dmp_opt $opts ;
+
+    unless ( exists $opts -> { $key } )
+      { Carp::confess "_opt : unknown option '$key'\n" ; }
+    elsif ( defined $val )
+      { Carp::confess "_opt : bad arg ($val)" if $val eq 'Blib' ;
+        $opts -> { $key } = $val ;
+        xx1 "set key ($key) val ($val)\n" ;
+      }
+
+    $val = $opts -> { $key } ;
+
+    xx1 "key ($key) => val ($val)\n" ; xx1 dmp_opt ( $opts ) ;
+
+    my $res = 0 ;
+    if ( ! defined $val )
+      { $res = 0 ;
+        xx2 "undef\n" ;
+      }
+    elsif ( $val )
+      { $res = $val % 2 ;
+        xx2 sprintf "result ($val)\n" ;
+      }
+    elsif ( $recurse and $parent )
+      { xx1 "recurse\n" ;
+        $res = $parent -> _opt ( $recurse, $key, undef ) ;
+      }
+    else
+      { xx2 "else ($val)\n" ; }
+    xx1 "=> self ($self) key ($key) res ($res)\n" ;
+    $res ;
+  }
+
+sub _dqv { my $self = shift ; xx1 "\n" ; $self -> _opt ( @_ ) ; }
+
+sub quiet      { my $self = shift ; $self -> _dqv ( 1, 'q', shift ) ; }
+sub quiet_me   { my $self = shift ; $self -> _dqv ( 0, 'q', shift ) ; }
+sub terse      { my $self = shift ; $self -> _dqv ( 1, 't', shift ) ; }
+sub terse_me   { my $self = shift ; $self -> _dqv ( 0, 't', shift ) ; }
+sub verbose    { my $self = shift ; $self -> _dqv ( 1, 'v', shift ) ; }
+sub verbose_me { my $self = shift ; $self -> _dqv ( 0, 'v', shift ) ; }
+sub debug      { my $self = shift ; $self -> _dqv ( 1, 'd', shift ) ; }
+sub debug_me   { my $self = shift ; $self -> _dqv ( 0, 'd', shift ) ; }
+
+sub set_opts
+  { my $self = shift ;
+    my %opts = @_ ;
+    if ( $opts{d} )
+      { $self -> set_loglevel ( 'debug' ) ; }
+    elsif ( $opts{v} )
+      { $self -> set_loglevel ( 'verbose' ) ; }
+    elsif ( $opts{q} )
+      { $self -> set_loglevel ( 'quiet' ) ; }
+    else
+      { $self -> set_loglevel ( 'terse' ) ; }
+  }
+
+# parent '' is '' ; the parent of an object instance is it's class
+sub parent
+  { my $self = shift ;
+    if ( ref $self )
+      { ref $self ; }
+    elsif ( $self =~ /^\w*$/ )
+      { '' ; }
+    elsif ( $self =~ /::\w+$/ )
+      { $` ; }
+    else
+      { Carp::confess "parent : bad arg ($self)" ; }
+  }
+
+sub set_loglevel
+  { my $self  = shift ;
+    my $level = shift ;
+    my $where = shift ;
+
+    if ( Blib -> _is_loglevel ( $level ) )
+      { my $mark = $LOGLEVELS { $level } ;
+        for my $llvl ( keys %LOGLEVELS )
+          { $self -> $llvl ( $LOGLEVELS { $llvl } <= $mark ) ; }
+        Blib::_pf
+          ( "set loglevel $self '%s' (%s)\n"
+          , $level , ( $where || 'somewhere' )
+          ) if $where or $self -> debug ;
+      }
+    else
+      { Carp::confess "set_log_level : bad level ($level)" ; }
+  }
+
+sub new
+  { my $self = shift ;
+    my $name = shift ;
+    if ( defined $name )
+      { $self = "${self}::${name}" ;
+        Carp::confess "Blib::new : bad name ($name)"
+          if $name =~ /^Dbs|Tab|Rec|Mods$/ ;
+        new_pack ( 'Blib', 'Mods' ) ;
+        new_pack ( 'Blib', $name ) ;
+        new_pack ( $self ) ;
+      }
+    _bless {}, $self ;
+  }
+
+sub make
+  { my $self = shift ;
+    my @args = @_ ;
+    $self -> new -> init ( @args ) ;
+  }
+
+sub add_ISA
+  { my $self = shift ;
+    my $pack = shift ;
+    my $isa  = sprintf 'push @%s::ISA, "%s" ;', $self, $pack ;
+    Blib::_pr ( "\n# multiple inheritance for $self\n$isa\n\n" )
+      if Blib -> debug ;
+    my $res = eval "$isa 1 ;" ;
+    Carp::confess "add_isa : $@" unless defined $res ;
+    $res ;
+  }
+
+my %_dumped ;
+my %_nodump ;
+my $_verbos ;
+
+sub _dmpval
+  { my $self  = shift ;
+    my $val   = shift ;
+    my $depth = shift ;
+    my $sep = ' ' x ( 2 * $depth ) ;
+    
+    my $dmp ;
+
+    if ( ! defined $val )
+      { $dmp = '<undef>' ; }
+    elsif ( ref $val and eval { $val -> can ( 'dmp' ) } )
+      { if ( exists $_dumped { $val } ) 
+          { $dmp = "recursed ($val)" ; }
+        else
+          { $_dumped { $val } ++ ;
+            $dmp = $val -> _dmp ( $depth + 1 ) ;
+          } ;
+      }
+    elsif ( ref $val eq 'ARRAY' )
+      { my $can = ( @$val and eval { $val -> [ 0 ] -> can ( 'dmp' ) } ) ;
+        $dmp =
+          ( scalar @$val
+          ? sprintf "\n${sep}  [ %s\n$sep  ]"
+              , join "\n$sep  , "
+              , ( $can
+                ? map { $_ -> _dmp ( $depth + 1 ) } @$val
+                : @$val 
+                ) 
+          : '[]'
+          ) ;
+      }
+    elsif ( ref $val eq 'HASH' )
+      { $dmp =
+          ( scalar keys %$val
+          ? sprintf "\n${sep}  { %s\n$sep  }"
+              , join "\n$sep  , "
+              , map { sprintf "%s => %s", $_, $val -> { $_ } }
+                  sort keys %$val
+          : '{}'
+          ) ;
+      }
+    elsif ( ! ref $val and $val eq '' )
+      { $dmp = '<empty>' ; }
+    else
+      { $val =~ s/(ARRAY|HASH)\(\w+\)/$1/ ;
+        $dmp = $val ;
+      }
+    $dmp ;
+  }
+
+sub _dmp
+  { my $self  = shift ;
+    my $depth = shift ;
+    my $ref = ref $self ;
+    %_dumped = () if $depth == 0 ;
+    my $sep = ' ' x ( 2 * $depth ) ;
+    my $slf = $depth ? '' : 'self ' ;
+    my $res = sprintf "%sis a '%s'\n", $slf, $ref ;
+    $res .= sprintf "${sep}ISA (%s)\n", eval '@' . "${ref}::ISA" ;
+    my $w = 0 ;
+    if ( ref $self and $self =~ /HASH/ )
+      { for my $key ( keys %$self ) { $w = length $key if length $key > $w ; }
+        for my $key ( sort keys %$self )
+          { my $val = $self -> { $key } ;
+            my $dmp ;
+            if ( $_nodump { $key } )
+              { next unless $_verbos ; $dmp = "<excluded> $val" ; }
+            else
+              { $dmp = $self -> _dmpval ( $val, $depth ) ; }
+            my $nl = ( "\n" eq substr ( $dmp, -1, 1 ) ? '' : "\n" ) ;
+            $res .= sprintf "%s%-${w}s : %s%s" , $sep , $key , $dmp, $nl ;
+          }
+      }
+    elsif ( ref $self and $self =~ /ARRAY/ )
+      { my $can = ( @$self and eval { $self -> [ 0 ] -> can ( 'dmp' ) } ) ;
+        $res .=
+          ( scalar @$self
+          ? sprintf "${sep}  [ %s\n$sep  ]"
+             , join "\n$sep  , "
+             , ( $can
+               ? map { $_ -> _dmp ( $depth + 1 ) } @$self
+               : @$self
+               )
+          : '[]'
+          ) ;
+      }
+    $res ;
+  }
+
+sub dmp
+  { my $self = shift ;
+    my %opts =
+      ( -excl => [ qw(_cafe _tabl _base) ]
+      , -incl => []
+      , -verb => 1
+      , @_
+      ) ;
+    %_dumped = () ;
+    %_nodump = () ;
+    $_verbos = $opts { -verb } ;
+    for my $key ( @{ $opts { -excl } } ) { $_nodump { $key } ++ ; }
+    for my $key ( @{ $opts { -incl } } ) { delete $_nodump { $key } ; }
+    Blib::_pf ( "excluding [%s]\n", join ',', sort keys %_nodump ) if $_verbos ;
+    Blib::_pr ( $self -> _dmp ( 0 ) ) ;
+  }
+
+sub _getset
+  { my $self = shift ;
+    my $attr = shift ;
+    Carp::confess "self not ref ($self)" unless ref $self ;
+    if ( @_ ) { $self -> { $attr } = shift ; }
+    Carp::confess "no attr '$attr' ($self)" unless exists $self -> { $attr } ;
+    my $res = $self -> { $attr } ;
+    ( wantarray and ref $res eq 'ARRAY' ) ? @$res : $res ;
+  }
+
+sub mk_typ
+  { my $self = shift ;
+    my $d = shift ;
+    my $type = ref $self || $self ;
+    die "mk_typ : bad type ($type)"
+      unless $type =~ /Blib::(Dbs|Tab|Col|Rec)(::|$)?/ ;
+    my $s = ( split /::/, $type ) [ 1 ] ;
+    $type =~ s/$s/$d/ ;
+    $type ;
+  }
+
+sub mk_method
+  { my $self = shift ;
+    my $attr = shift ;
+    sprintf 'sub %s { my $self = shift ; $self -> _getset ( "%s",  @_ ) ; }'
+      , $attr, $attr ;
+  }
+
+sub mk_methods
+  { my $self = shift ;
+    join "\n", map { Blib -> mk_method ( $_ ) ; } @_ ;
+  }
+
+sub new_pack
+  { my $type = shift ;
+    my $name = shift ;
+    my @isa  = split /::/, $type ;
+    my $isa  = shift @isa ; $isa .= '::' . shift @isa if @isa ;
+    my $new_typ = $type ;
+    my $new_isa = $isa  ;
+    if ( defined $name )
+      { $new_typ = "${type}::${name}" ; $new_isa = $type ; }
+    my $fmt  = <<'PACK' ;
+
+{ package %s ; }
+{ @%s::ISA = qw(%s) ; }
+PACK
+    my $pack = sprintf $fmt, $new_typ, $new_typ, $new_isa ;
+    Blib::_pr $pack if Blib -> debug ;
+    my $res = eval "$pack ; 1 ;" ;
+    Carp::confess "new_pack : $@" unless defined $res ;
+    $pack ;
+  }
+
+sub new_method
+  { my $pack = shift ;
+    my $attr = shift ;
+    my $fmt  = "{ package %s ; eval Blib -> mk_method ( '%s' ) ; }\n" ;
+    my $mth = sprintf $fmt, $pack, $attr, $attr ;
+    Blib::_pr ( $mth ) if Blib -> debug ;
+    my $res = eval "$mth ; 1 ;" ;
+    Carp::confess "new_method : $@" unless defined $res ;
+  }
+
+### JSON ####################################################################
+
+package Blib::JSON ;
+
+our @ISA ; BEGIN { @ISA = qw(Blib) ; }
+
+eval Blib -> mk_methods ( qw(__) ) ;
+
+my %name4key ;
+sub add_name4key
+  { my $self = shift ;
+    my %opts = @_ ;
+    for my $key ( keys %opts ) { $name4key { $key } = $opts { $key } ; }
+  }
+sub name4key
+  { my $self = shift ;
+    my $x = shift ;
+    $name4key { $x } || $x ;
+  }
+
+my %name4row ;
+sub add_name4row
+  { my $self = shift ;
+    my %opts = @_ ;
+    for my $key ( keys %opts )
+      { $name4row { $key } = $opts { $key } ; }
+  }
+sub name4row
+  { my $self = shift ;
+    my $x = shift ;
+    my $n = $x ;
+    $n =~ s/=.*// ;
+    $name4row { $n } ;
+  }
+
+sub make
+  { my $self = shift ;
+    my %opts = @_ ;
+    my $name = $opts { -name } ;
+    $self -> new ( $name ) -> init ( %opts ) ;
+  }
+
+sub init
+  { my $self = shift ;
+    my %opts = @_ ;
+    $self -> __ ( undef ) ;
+    for my $opt ( keys %opts ) { $self -> $opt ( $opts { $opt } ) ; }
+    $self ;
+  }
+
+sub add
+  { my $self = shift ;
+    my $type = Blib::unref $self ;
+    my %opts = @_ ;
+    my $name = $opts { -name } ;
+    my $kind = $opts { -kind } ;
+    my $tsub = "${type}::$name" ;
+
+    Blib::new_method ( $type, $name ) ;
+    Blib::new_pack ( $tsub ) if $kind ;
+    my $res = Blib::_bless {}, $tsub ;
+    if ( ref $self )
+      { $self -> { $name } = ( $kind ? $res : 'scalar' ) ; }
+    $res ;
+  }
+
+sub mk_sub_model ;
+
+sub mk_sub_model
+  { my $self = shift ;
+    my $base = shift ;
+    my $name = shift ;
+    my $json = shift ;
+    my $kind = ref $json ;
+
+    my $type = $base -> add ( -name => $name , -kind => $kind ) ;
+
+    if ( $kind eq 'HASH' )
+      { for my $key ( sort keys %$json )
+          { my $name = Blib::JSON -> name4key ( $key ) ;
+            $self -> mk_sub_model ( $type, $name, $json -> { $key } ) ;
+          }
+      }
+    elsif ( $kind eq 'ARRAY' and @$json )
+      { my $elem = $json -> [ 0 ] ;
+        my $name = Blib::JSON -> name4row ( $type ) ;
+        die "no name for $type" unless $name ;
+        $self -> mk_sub_model ( $type, $name, $elem ) ;
+      }
+
+    $type ;
+  }
+
+sub mk_model
+  { my $self = shift ;
+    my $name  = shift ;
+    my $json  = shift ;
+    $self -> mk_sub_model ( 'Blib::JSON', $name, $json ) ;
+  }
+
+sub bless
+  { my $type = shift ;
+    my $json = shift ;
+    my $kind = ref $json ;
+
+    return undef unless defined $json ;
+    Blib::_bless ( $json, Blib::unref $type ) ;
+
+    if ( $kind eq 'HASH' )
+      { for my $key ( sort keys %$json )
+          { my $name = Blib::JSON -> name4key ( $key ) ;
+            if ( $name ne $key )
+              { $json -> { $name } = $json -> { $key } ;
+                delete $json -> { $key } ;
+              }
+            if ( ref $type -> $name )
+              { $type -> $name -> bless ( $json -> { $name } ) ; }
+          }
+      }
+    elsif ( $kind eq 'ARRAY' and @$json and ref ( $json -> [ 0 ] ) )
+      { my $name = Blib::JSON -> name4row ( $type ) || 'elem' ;
+        for my $elem ( @$json )
+          { $type -> $name -> bless ( $elem ) ; }
+      }
+
+    $json ;
+  }
+
+1 ;
+
+################################################################################
+##  File:
+##      Daemon.pm
+##  Authors:
+##      Earl Hood         earl@earlhood.com
+##      Detlef Pilzecker  deti@cpan.org
+##  Description:
+##      Run Perl program(s) as a daemon process, see docu in the Daemon.pod file
+################################################################################
+##  Copyright (C) 1997-2011 by Earl Hood and Detlef Pilzecker.
+##
+##  All rights reserved.
+##
+##  This module is free software. It may be used, redistributed and/or modified
+##      under the same terms as Perl itself.
+################################################################################
+
+
+package Proc::Daemon;
+no warnings 'once' ;
+
+
+use POSIX();
+
+$Proc::Daemon::VERSION = '0.13.0.0.0';
+
+
+my %memory;
+
+
+################################################################################
+# Create the Daemon object:
+# my $daemon = Proc::Daemon->new( [ %Daemon_Settings ] )
+#
+#   %Daemon_Settings are hash key=>values and can be:
+#     work_dir     => '/working/daemon/directory'   -> defaults to '/'
+#     setuid       => 12345                         -> defaults to <undef>
+#     child_STDIN  => '/path/to/daemon/STDIN.file'  -> defautls to '</dev/null'
+#     child_STDOUT => '/path/to/daemon/STDOUT.file' -> defaults to '+>/dev/null'
+#     child_STDERR => '/path/to/daemon/STDERR.file' -> defaults to '+>/dev/null'
+#     dont_close_fh => [ 'main::DATA', 'PackageName::DATA', 'STDOUT', ... ]
+#       -> arrayref with file handles you do not want to be closed in the daemon.
+#     dont_close_fd => [ 5, 8, ... ]                -> arrayref with file
+#       descriptors you do not want to be closed in the daemon.
+#     pid_file =>     '/path/to/pid/file.txt'       -> defaults to
+#       undef (= write no file).
+#     exec_command => 'perl /home/script.pl'        -> execute a system command
+#       via Perls *exec PROGRAM* at the end of the Init routine and never return.
+#       Must be an arrayref if you want to create several daemons at once.
+#
+# Returns: the blessed object.
+################################################################################
+sub new {
+    my ( $class, %args ) = @_;
+
+    my $self = \%args;
+    bless( $self, $class );
+
+    return $self;
+}
+
+
+################################################################################
+# Become a daemon:
+# $daemon->Init
+#
+# or, for more daemons with other settings in the same script:
+# Use a hash as below. The argument must (!) now be a hashref: {...}
+# even if you don't modify the initial settings (=> use empty hashref).
+# $daemon->Init( { [ %Daemon_Settings ] } )
+#
+# or, if no Daemon->new() object was created and for backward compatibility:
+# Proc::Daemon::Init( [ { %Daemon_Settings } ] )
+#   In this case the argument must be <undef> or a hashref!
+#
+# %Daemon_Settings see &new.
+#
+# Returns to the parent:
+#   - nothing (parent does exit) if the context is looking for no return value.
+#   - the PID(s) of the daemon(s) created.
+# Returns to the child (daemon):
+#   its PID (= 0) | never returns if used with 'exec_command'.
+################################################################################
+sub Init {
+    my Proc::Daemon $self = shift;
+    my $settings_ref = shift;
+
+
+    # Check if $self has been blessed into the package, otherwise do it now.
+    unless ( ref( $self ) && eval{ $self->isa( 'Proc::Daemon' ) } ) {
+        $self = ref( $self ) eq 'HASH' ? Proc::Daemon->new( %$self ) : Proc::Daemon->new();
+    }
+    # If $daemon->Init is used again in the same script,
+    # update to the new arguments.
+    elsif ( ref( $settings_ref ) eq 'HASH' ) {
+        map { $self->{ $_ } = $$settings_ref{ $_ } } keys %$settings_ref;
+    }
+
+
+    # Open a filehandle to an anonymous temporary pid file. If this is not
+    # possible (some environments do not allow all users to use anonymous
+    # temporary files), use the pid_file(s) to retrieve the PIDs for the parent.
+    my $FH_MEMORY;
+    unless ( open( $FH_MEMORY, "+>", undef ) || $self->{pid_file} ) {
+        die "Can not <open> anonymous temporary pidfile ('$!'), therefore you must add 'pid_file' as an Init() argument, e.g. to: '/tmp/proc_daemon_pids'";
+    }
+
+
+    # Get the file descriptors the user does not want to close.
+    my %dont_close_fd;
+    if ( defined $self->{dont_close_fd} ) {
+        die "The argument 'dont_close_fd' must be arrayref!"
+            if ref( $self->{dont_close_fd} ) ne 'ARRAY';
+        foreach ( @{ $self->{dont_close_fd} } ) {
+            die "All entries in 'dont_close_fd' must be numeric ('$_')!" if $_ =~ /\D/;
+            $dont_close_fd{ $_ } = 1;
+        }
+    }
+    # Get the file descriptors of the handles the user does not want to close.
+    if ( defined $self->{dont_close_fh} ) {
+        die "The argument 'dont_close_fh' must be arrayref!"
+            if ref( $self->{dont_close_fh} ) ne 'ARRAY';
+        foreach ( @{ $self->{dont_close_fh} } ) {
+            if ( defined ( my $fn = fileno $_ ) ) {
+                $dont_close_fd{ $fn } = 1;
+            }
+        }
+    }
+
+
+    # If system commands are to be executed, put them in a list.
+    my @exec_command = ref( $self->{exec_command} ) eq 'ARRAY' ? @{ $self->{exec_command} } : ( $self->{exec_command} );
+    $#exec_command = 0 if $#exec_command < 0;
+
+
+    # Create a daemon for every system command.
+    foreach my $exec_command ( @exec_command ) {
+        # The first parent is running here.
+
+
+        # Using this subroutine or loop multiple times we must modify the filenames:
+        # 'child_STDIN', 'child_STDOUT', 'child_STDERR' and 'pid_file' for every
+        # daemon (a higher number will be appended to the filenames).
+        $self->adjust_settings();
+
+
+        # First fork.
+        my $pid = Fork();
+        if ( defined $pid && $pid == 0 ) {
+            # The first child runs here.
+
+
+            # Set the new working directory.
+            die "Can't <chdir> to $self->{work_dir}: $!" unless chdir $self->{work_dir};
+
+            # Clear the file creation mask.
+            umask 0;
+
+            # Detach the child from the terminal (no controlling tty), make it
+            # the session-leader and the process-group-leader of a new process
+            # group. Some (Windows) OS do not support POSIX::setsid(). This is
+            # the reason for the <eval> here. In this case we only <warn>.
+            die "Cannot detach from controlling terminal" if ( eval{ POSIX::setsid() } || 0 ) < 0;
+            warn "Cannot detach from controlling terminal with POSIX::setsid(): $@" if $@;
+
+            # "Is ignoring SIGHUP necessary?
+            #
+            # It's often suggested that the SIGHUP signal should be ignored before
+            # the second fork to avoid premature termination of the process. The
+            # reason is that when the first child terminates, all processes, e.g.
+            # the second child, in the orphaned group will be sent a SIGHUP.
+            #
+            # 'However, as part of the session management system, there are exactly
+            # two cases where SIGHUP is sent on the death of a process:
+            #
+            #   1) When the process that dies is the session leader of a session that
+            #      is attached to a terminal device, SIGHUP is sent to all processes
+            #      in the foreground process group of that terminal device.
+            #   2) When the death of a process causes a process group to become
+            #      orphaned, and one or more processes in the orphaned group are
+            #      stopped, then SIGHUP and SIGCONT are sent to all members of the
+            #      orphaned group.' [2]
+            #
+            # The first case can be ignored since the child is guaranteed not to have
+            # a controlling terminal. The second case isn't so easy to dismiss.
+            # The process group is orphaned when the first child terminates and
+            # POSIX.1 requires that every STOPPED process in an orphaned process
+            # group be sent a SIGHUP signal followed by a SIGCONT signal. Since the
+            # second child is not STOPPED though, we can safely forego ignoring the
+            # SIGHUP signal. In any case, there are no ill-effects if it is ignored."
+            # Source: http://code.activestate.com/recipes/278731/
+            #
+           # local $SIG{'HUP'} = 'IGNORE';
+
+            # Second fork.
+            # This second fork is not absolutely necessary, it is more a precaution.
+            # 1. Prevent possibility of reacquiring a controlling terminal.
+            # Without this fork the daemon would remain a session-leader. In
+            # this case there is a potential possibility that the process could
+            # reacquire a controlling terminal. E.g. if it opens a terminal device,
+            # without using the O_NOCTTY flag. In Perl this is normally the case
+            # when you use <open> on this kind of device, instead of <sysopen>
+            # with the O_NOCTTY flag set.
+            # Note: Because of the second fork the daemon will not be a session-
+            # leader and therefore Signals will not be send to other members of
+            # his process group. If you need the functionality of a session-leader
+            # you may want to call POSIX::setsid() manually on your daemon.
+            # 2. Detach the daemon completely from the parent.
+            # The double-fork prevents the daemon from becoming a zombie. It is
+            # needed in this module because the grandparent process can continue.
+            # Without the second fork and if a child exits before the parent
+            # and you forget to call <wait> in the parent you will get a zombie
+            # until the parent also terminates. Using the second fork we can be
+            # sure that the parent of the daemon is finished near by or before
+            # the daemon exits.
+            $pid = Fork();
+            if ( defined $pid && $pid == 0 ) {
+                # Here the second child is running.
+
+
+                # Close all file handles and descriptors the user does not want
+                # to preserve.
+                my $hc_fd; # highest closed file descriptor
+                close $FH_MEMORY;
+                foreach ( 0 .. OpenMax() ) {
+                    unless ( $dont_close_fd{ $_ } ) {
+                        if    ( $_ == 0 ) { close STDIN  }
+                        elsif ( $_ == 1 ) { close STDOUT }
+                        elsif ( $_ == 2 ) { close STDERR }
+                        else { $hc_fd = $_ if POSIX::close( $_ ) }
+                    }
+                }
+
+                # Sets the real user identifier and the effective user
+                # identifier for the daemon process before opening files.
+                POSIX::setuid( $self->{setuid} ) if defined $self->{setuid};
+
+                # Reopen STDIN, STDOUT and STDERR to 'child_STD...'-path or to
+                # /dev/null. Data written on a null special file is discarded.
+                # Reads from the null special file always return end of file.
+                open( STDIN,  $self->{child_STDIN}  || "</dev/null" )  unless $dont_close_fd{ 0 };
+                open( STDOUT, $self->{child_STDOUT} || "+>/dev/null" ) unless $dont_close_fd{ 1 };
+                open( STDERR, $self->{child_STDERR} || "+>/dev/null" ) unless $dont_close_fd{ 2 };
+
+                # Since <POSIX::close(FD)> is in some cases "secretly" closing
+                # file descriptors without telling it to perl, we need to
+                # re<open> and <CORE::close(FH)> as many files as we closed with
+                # <POSIX::close(FD)>. Otherwise it can happen (especially with
+                # FH opened by __DATA__ or __END__) that there will be two perl
+                # handles associated with one file, what can cause some
+                # confusion.   :-)
+                # see: http://rt.perl.org/rt3/Ticket/Display.html?id=72526
+                if ( $hc_fd ) {
+                    my @fh;
+                    foreach ( 3 .. $hc_fd ) { open $fh[ $_ ], "</dev/null" }
+                    # Perl will try to close all handles when @fh leaves scope
+                    # here, but the rude ones will sacrifice themselves to avoid
+                    # potential damage later.
+                }
+
+
+                # Execute a system command and never return.
+                if ( $exec_command ) {
+                    exec $exec_command;
+                    exit; # Not a real exit, but needed since Perl warns you if
+                    # there is no statement like <die>, <warn>, or <exit>
+                    # following <exec>. The <exec> function executes a system
+                    # command and never returns.
+                }
+
+
+                # Return the childs own PID (= 0)
+                return $pid;
+            }
+
+
+            # First child (= second parent) runs here.
+
+
+            # Print the PID of the second child into ...
+            $pid ||= '';
+            # ... the anonymous temporary pid file.
+            if ( $FH_MEMORY ) {
+                print $FH_MEMORY "$pid\n";
+                close $FH_MEMORY;
+            }
+            # ... the real 'pid_file'.
+            if ( $self->{pid_file} ) {
+                open( my $FH_PIDFILE, "+>", $self->{pid_file} ) ||
+                    die "Can not open pidfile (pid_file => '$self->{pid_file}'): $!";
+                print $FH_PIDFILE $pid;
+                close $FH_PIDFILE;
+            }
+
+
+            # Don't <wait> for the second child to exit,
+            # even if we don't have a value in $exec_command.
+            # The second child will become orphan by <exit> here, but then it
+            # will be adopted by init(8), which automatically performs a <wait>
+            # to remove the zombie when the child exits.
+
+            exit;
+        }
+
+
+        # Only first parent runs here.
+
+
+        # A child that terminates, but has not been waited for becomes
+        # a zombie. So we wait for the first child to exit.
+        waitpid( $pid, 0 );
+    }
+
+
+    # Only first parent runs here.
+
+
+    # Exit if the context is looking for no value (void context).
+    exit 0 unless defined wantarray;
+
+    # Get the daemon PIDs out of the anonymous temporary pid file
+    # or out of the real pid-file(s)
+    my @pid;
+    if ( $FH_MEMORY ) {
+        seek( $FH_MEMORY, 0, 0 );
+        @pid = map { chomp $_; $_ eq '' ? undef : $_ } <$FH_MEMORY>;
+        close $FH_MEMORY;
+    }
+    else {
+        foreach ( keys %{ $memory{'pid_file'} } ) {
+            open( $FH_MEMORY, "<", $_ ) || die "Can not open pid_file '<$_': $!";
+            push( @pid, <$FH_MEMORY> );
+            close $FH_MEMORY;
+        }
+    }
+
+    # Return the daemon PIDs (from second child/ren) to the first parent.
+    return ( wantarray ? @pid : $pid[0] );
+}
+# For backward capability:
+*init = \&Init;
+
+
+################################################################################
+# Set some defaults and adjust some settings.
+# Args: ( $self )
+# Returns: nothing
+################################################################################
+sub adjust_settings {
+    my Proc::Daemon $self = shift;
+
+    # Set default 'work_dir' if needed.
+    $self->{work_dir} ||= '/';
+
+    $self->fix_filename( 'child_STDIN',  1 ) if $self->{child_STDIN};
+
+    $self->fix_filename( 'child_STDOUT', 1 ) if $self->{child_STDOUT};
+
+    $self->fix_filename( 'child_STDERR', 1 ) if $self->{child_STDERR};
+
+    # Check 'pid_file's name
+    if ( $self->{pid_file} ) {
+        die "Pidfile (pid_file => '$self->{pid_file}') can not be only a number. I must be able to distinguish it from a PID number in &get_pid('...')." if $self->{pid_file} =~ /^\d+$/;
+
+        $self->fix_filename( 'pid_file' );
+    }
+
+    return;
+}
+
+
+################################################################################
+# - If the keys value is only a filename add the path of 'work_dir'.
+# - If we have already set a file for this key with the same "path/name",
+#   add a number to the file.
+# Args: ( $self, $key, $extract_mode )
+#   key: one of 'child_STDIN', 'child_STDOUT', 'child_STDERR', 'pid_file'
+#   extract_mode: true = separate <open> MODE form filename before checking
+#                 path/filename; false = no MODE to check
+# Returns: nothing
+################################################################################
+sub fix_filename {
+    my Proc::Daemon $self = shift;
+    my $key  = shift;
+    my $var  = $self->{ $key };
+    my $mode = ( shift ) ? ( $var =~ s/^([\+\<\>\-\|]+)// ? $1 : ( $key eq 'child_STDIN' ? '<' : '+>' ) ) : '';
+
+    # add path to filename
+    if ( $var =~ s/^\.\/// || $var !~ /\// ) {
+        $var = $self->{work_dir} =~ /\/$/ ?
+            $self->{work_dir} . $var : $self->{work_dir} . '/' . $var;
+    }
+
+    # If the file was already in use, modify it with '_number':
+    # filename_X | filename_X.ext
+    if ( $memory{ $key }{ $var } ) {
+        $var =~ s/([^\/]+)$//;
+        my @i = split( /\./, $1 );
+        my $j = $#i ? $#i - 1 : 0;
+
+        $memory{ "$key\_num" } ||= 0;
+        $i[ $j ] =~ s/_$memory{ "$key\_num" }$//;
+        $memory{ "$key\_num" }++;
+        $i[ $j ] .= '_' . $memory{ "$key\_num" };
+        $var .= join( '.', @i );
+    }
+
+    $memory{ $key }{ $var } = 1;
+    $self->{ $key } = $mode . $var;
+
+    return;
+}
+
+
+################################################################################
+# Fork(): Retries to fork over 30 seconds if possible to fork at all and
+#   if necessary.
+# Returns the child PID to the parent process and 0 to the child process.
+#   If the fork is unsuccessful it C<warn>s and returns C<undef>.
+################################################################################
+sub Fork {
+    my $pid;
+    my $loop = 0;
+
+    FORK: {
+        if ( defined( $pid = fork ) ) {
+            return $pid;
+        }
+
+        # EAGAIN - fork cannot allocate sufficient memory to copy the parent's
+        #          page tables and allocate a task structure for the child.
+        # ENOMEM - fork failed to allocate the necessary kernel structures
+        #          because memory is tight.
+        # Last the loop after 30 seconds
+        if ( $loop < 6 && ( $! == POSIX::EAGAIN() ||  $! == POSIX::ENOMEM() ) ) {
+            $loop++; sleep 5; redo FORK;
+        }
+    }
+
+    warn "Can't fork: $!";
+
+    return undef;
+}
+
+
+################################################################################
+# OpenMax( [ NUMBER ] )
+# Returns the maximum number of possible file descriptors. If sysconf()
+# does not give me a valid value, I return NUMBER (default is 64).
+################################################################################
+sub OpenMax {
+    my $openmax = POSIX::sysconf( &POSIX::_SC_OPEN_MAX );
+
+    return ( ! defined( $openmax ) || $openmax < 0 ) ?
+        ( shift || 64 ) : $openmax;
+}
+
+
+################################################################################
+# Check if the (daemon) process is alive:
+# Status( [ number or string ] )
+#
+# Examples:
+#   $object->Status() - Tries to get the PID out of the settings in new() and checks it.
+#   $object->Status( 12345 ) - Number of PID to check.
+#   $object->Status( './pid.txt' ) - Path to file containing one PID to check.
+#   $object->Status( 'perl /home/my_perl_daemon.pl' ) - Command line entry of the
+#               running program to check. Requires Proc::ProcessTable to work.
+#
+# Returns the PID (alive) or 0 (dead).
+################################################################################
+sub Status {
+    my Proc::Daemon $self = shift;
+    my $pid = shift;
+
+    # Get the process ID.
+    ( $pid, undef ) = $self->get_pid( $pid );
+
+    # Return if no PID was found.
+    return 0 if ! $pid;
+
+    # The kill(2) system call will check whether it's possible to send
+    # a signal to the pid (that means, to be brief, that the process
+    # is owned by the same user, or we are the super-user). This is a
+    # useful way to check that a child process is alive (even if only
+    # as a zombie) and hasn't changed its UID.
+    return ( kill( 0, $pid ) ? $pid : 0 );
+}
+
+
+################################################################################
+# Kill the (daemon) process:
+# Kill_Daemon( [ number or string [, SIGNAL ] ] )
+#
+# Examples:
+#   $object->Kill_Daemon() - Tries to get the PID out of the settings in new() and kill it.
+#   $object->Kill_Daemon( 12345, 'TERM' ) - Number of PID to kill with signal 'TERM'. The
+#     names or numbers of the signals are the ones listed out by kill -l on your system.
+#   $object->Kill_Daemon( './pid.txt' ) - Path to file containing one PID to kill.
+#   $object->Kill_Daemon( 'perl /home/my_perl_daemon.pl' ) - Command line entry of the
+#               running program to kill. Requires Proc::ProcessTable to work.
+#
+# Returns the number of processes successfully killed,
+# which mostly is not the same as the PID number.
+################################################################################
+sub Kill_Daemon {
+    my Proc::Daemon $self = shift;
+    my $pid    = shift;
+    my $signal = shift || 'KILL';
+    my $pidfile;
+
+    # Get the process ID.
+    ( $pid, $pidfile ) = $self->get_pid( $pid );
+
+    # Return if no PID was found.
+    return 0 if ! $pid;
+
+    # Kill the process.
+    my $killed = kill( $signal, $pid );
+
+    if ( $killed && $pidfile ) {
+        # Set PID in pid file to '0'.
+        if ( open( my $FH_PIDFILE, "+>", $pidfile ) ) {
+            print $FH_PIDFILE '0';
+            close $FH_PIDFILE;
+        }
+        else { warn "Can not open pidfile (pid_file => '$pidfile'): $!" }
+    }
+
+    return $killed;
+}
+
+
+################################################################################
+# Return the PID of a process:
+# get_pid( number or string )
+#
+# Examples:
+#   $object->get_pid() - Tries to get the PID out of the settings in new().
+#   $object->get_pid( 12345 ) - Number of PID to return.
+#   $object->get_pid( './pid.txt' ) - Path to file containing the PID.
+#   $object->get_pid( 'perl /home/my_perl_daemon.pl' ) - Command line entry of
+#               the running program. Requires Proc::ProcessTable to work.
+#
+# Returns an array with ( 'the PID | <undef>', 'the pid_file | <undef>' )
+################################################################################
+sub get_pid {
+    my Proc::Daemon $self = shift;
+    my $string = shift || '';
+    my ( $pid, $pidfile );
+
+    if ( $string ) {
+        # $string is already a PID.
+        if ( $string =~ /^\d+$/ ) {
+            $pid = $string;
+        }
+        # Open the pidfile and get the PID from it.
+        elsif ( open( my $FH_MEMORY, "<", $string ) ) {
+            $pid = <$FH_MEMORY>;
+            close $FH_MEMORY;
+
+            die "I found no valid PID ('$pid') in the pidfile: '$string'" if $pid =~ /\D/s;
+
+            $pidfile = $string;
+        }
+        # Get the PID by the system process table.
+        else {
+            $pid = $self->get_pid_by_proc_table_attr( 'cmndline', $string );
+        }
+    }
+
+
+    # Try to get the PID out of the new() settings.
+    if ( ! $pid ) {
+        # Try to get the PID out of the 'pid_file' setting.
+        if ( $self->{pid_file} && open( my $FH_MEMORY, "<", $self->{pid_file} ) ) {
+            $pid = <$FH_MEMORY>;
+            close $FH_MEMORY;
+
+            if ( ! $pid || ( $pid && $pid =~ /\D/s ) ) { $pid = undef }
+            else { $pidfile = $self->{pid_file} }
+        }
+
+        # Try to get the PID out of the system process
+        # table by the 'exec_command' setting.
+        if ( ! $pid && $self->{exec_command} ) {
+            $pid = $self->get_pid_by_proc_table_attr( 'cmndline', $self->{exec_command} );
+        }
+    }
+
+    return ( $pid, $pidfile );
+}
+
+
+################################################################################
+# This sub requires the Proc::ProcessTable module to be installed!!!
+#
+# Search for the PID of a process in the process table:
+# $object->get_pid_by_proc_table_attr( 'unix_process_table_attribute', 'string that must match' )
+#
+#   unix_process_table_attribute examples:
+#   For more see the README.... files at http://search.cpan.org/~durist/Proc-ProcessTable/
+#     uid      - UID of process
+#     pid      - process ID
+#     ppid     - parent process ID
+#     fname    - file name
+#     state    - state of process
+#     cmndline - full command line of process
+#     cwd      - current directory of process
+#
+# Example:
+#   get_pid_by_proc_table_attr( 'cmndline', 'perl /home/my_perl_daemon.pl' )
+#
+# Returns the process PID on success, otherwise <undef>.
+################################################################################
+sub get_pid_by_proc_table_attr {
+    my Proc::Daemon $self = shift;
+    my ( $command, $match ) = @_;
+    my $pid;
+
+    # eval - Module may not be installed
+    eval {
+        require Proc::ProcessTable;
+
+        my $table = Proc::ProcessTable->new()->table;
+
+        foreach ( @$table ) {
+            # fix for Proc::ProcessTable: under some conditions $_->cmndline
+            # retruns with space and/or other characters at the end
+            next unless $_->$command =~ /^$match\s*$/;
+            $pid = $_->pid;
+            last;
+        }
+    };
+
+    warn "- Problem in get_pid_by_proc_table_attr( '$command', '$match' ):\n  $@  You may not use a command line entry to get the PID of your process.\n  This function requires Proc::ProcessTable (http://search.cpan.org/~durist/Proc-ProcessTable/) to work.\n" if $@;
+
+    return $pid;
+}
+
+1;
+# --------------------------------------------------------------------------
+
+package main ;
+
+
+our $LCL_JSON ;
+
+BEGIN
+  { my @jsons = qw(JSON::XS JSON::PP JSON) ;
+    for ( @jsons )
+      { if ( eval "use $_ ; 1 ;" )
+          { $LCL_JSON = $_ ; last ; }
+      }
+    die sprintf "can't find %s\n", join ' or ', @jsons
+      unless defined $LCL_JSON ;
+    die sprintf "%s can't do 'new()'\n", $LCL_JSON
+      unless $LCL_JSON -> can ( 'new' ) ;
+  }
+
+BEGIN { Blib -> import () ; }
+use Carp ;
+use File::Path ;
+
+our $PRG     = 'iim' ;
+our $VERSION = '0.4.13' ;
+
+our $DEV   = 0 ;
+our $INO   = 1 ;
+our $NLINK = 3 ;
+our $SIZE  = 7 ;
+our $ATIME = 8 ;
+our $MTIME = 9 ;
+
+our $MAX_TRIES    = 3 ;
+our $LOCK_TRIES   = 3 ;
+our $LOCK_SLEEP   = 1 ;
+our $LCK_FILE     = "iim.lck" ;
+our $LOG_FILE     = "iim.log" ;
+our $PID_FILE     = "iim.pid" ;
+our $SCB_FILE     = "iim-scb.html" ;
+our $SCB_TMPL     = "iim-scb-tmpl.html" ;
+our $SCB_SMPL     = "$SCB_TMPL.sample" ;
+our $REQ_LIST     = 'request-list' ;
+our $MAX_AGE_INIT = '2d' ;
+our $REOPEN_IVAL  = 300;
+our $SLEEP_NAP    = 15 ;
+our $AGGREGATOR   = [ qw(1h 6h 1d 1W 1M 1Q 1Y Z) ] ;
+our $UMASK        = '022' ;
+our $CPAN_LOCL    = 'local' ;
+our $CPAN_TEMP    = "$CPAN_LOCL/iim" ;
+our $RSYNC_TMP    = 'rsync-tmp' ;
+our $HOSTNAME     = `hostname 2>/dev/null` ;
+our $IIM_SITE     = 'http://www.staff.science.uu.nl/~penni101/iim' ;
+our $IIM_LOGO     = 'iim-logo.png' ;
+our $IIM_LOGO_URL = "$IIM_SITE/images/$IIM_LOGO" ;
+our $STAMP        = 'indices/timestamp.txt' ;
+
+our @RSYNC_OPTS =
+  ( '--no-motd'
+  , '-a'
+  , '--stats'
+  , '-z'
+  , '--exclude' => "/$CPAN_LOCL/"
+  ) ;
+
+our @RSYNC_LIST =
+  ( @RSYNC_OPTS
+  ) ;
+
+our @RSYNC_FULL =
+  ( @RSYNC_OPTS
+  , '-v'
+  , '--delete'
+  ) ;
+
+our @RSYNC_CMP =
+  ( @RSYNC_FULL
+  , '-n'
+  , '--timeout'    => 300
+  , '--contimeout' =>  15
+  ) ;
+
+our $NOERR =  0 ;
+our $E_XEC = 11 ;
+our $E_SIG = 12 ;
+our $E_XIT = 13 ;
+our $E_PRT = 23 ; # Partial transfer due to error
+our $E_MIS = 24 ; # Partial transfer due to vanished source files
+
+sub PRG      { $PRG ;      }
+sub SCB_FILE { $SCB_FILE ; }
+sub SCB_TMPL { $SCB_TMPL ; }
+sub SCB_SMPL { $SCB_SMPL ; }
+sub LCL_JSON { $LCL_JSON ; }
+
+##########################################################
+package RF ;
+
+use Time::HiRes qw(gettimeofday) ;
+use Fcntl qw(:flock) ;
+use IO::Pipe ;
+
+our ( @ISA, @EXPORT ) ;
+BEGIN
+  { require Exporter ;
+    @ISA    = qw(Blib) ;
+    @EXPORT = qw(LOGf LOGx) ;
+  }
+
+my @methods =
+  ( qw( conf type epoc next_sync next_reopen next_rotate tag scores)
+  , qw( sync status)
+  ) ;
+eval Blib -> mk_methods ( @methods ) ;
+
+our $name4key =
+  { '$0' => 'dollar0'
+  , 'File::Rsync::Mirror::Recentfile' => 'FRMR'
+  } ;
+our $name4row =
+  { 'Blib::JSON::rfile::recent'           => 'event'
+  , 'Blib::JSON::rfile::meta::aggregator' => 'interval'
+  } ;
+
+sub LOGx
+  { my $x = shift ;
+    my $date = localtime ;
+    printf "%s %s\n", $date, $x ;
+  }
+
+sub LOGf
+  { my $f = shift ;
+    my $date = localtime ;
+    my $msg  = sprintf $f, @_ ;
+    printf "%s %s\n", $date, $msg ;
+  }
+
+sub loglevel
+  { my %opts = @_ ;
+    my $res ;
+    $res = $opts { loglevel } if exists $opts { loglevel } ;
+    $res = 'quiet'   if $opts{q} ;
+    $res = 'verbose' if $opts{v} ;
+    $res = 'debug'   if $opts{d} ;
+    $res ;
+  }
+
+sub init
+  { my $self = shift ;
+    my %opts =
+      ( -root => undef
+      , @_
+      ) ;
+    my $llvl = loglevel %opts ;
+    $self -> set_loglevel ( $llvl )
+      if $llvl and Blib -> _is_loglevel ( $llvl ) ;
+    $opts { loglevel } = $llvl if $llvl ;
+
+    my $conf = $self -> conf ( $self -> get_config ( %opts ) ) ;
+    die $conf unless ref $conf ;
+    $self -> set_loglevel ( $conf -> loglevel ) unless $llvl ;
+
+    $ENV { RSYNC_PASSWORD } = $conf -> passwd ;
+    Blib::JSON -> add_name4key ( %$name4key ) ;
+    Blib::JSON -> add_name4row ( %$name4row ) ;
+    my $json =
+     ( $conf -> model_file
+     ? $self -> _get_json ( $conf -> model_file )
+     : $LCL_JSON -> new -> decode ( $conf -> model )
+     ) ;
+    $self -> type ( Blib::JSON -> mk_model ( 'rfile', $json ) ) ;
+    $self -> epoc ( undef )    ; # undef == 'no epoch determined'
+    $self -> tag  ( undef )    ; # undef == 'plain mode'
+    $self -> next_sync   ( 0 ) ; # 0 == 'nothing scheduled'
+    $self -> next_rotate ( 0 ) ; # will rotate if rotate.count > 0
+    $self -> next_reopen ( 0 ) ;
+    $self -> scores ( RF::Scores -> make ( parent => $self ) ) ;
+    $self -> sync ( RF::Sync -> make ( parent => $self ) ) ;
+    $self -> status ( 'initializing' ) ;
+    $self -> set_umask ;
+    $self ;
+  }
+
+sub dtag
+  { my $self = shift ;
+    my $tag   = $self -> tag || '' ;
+    substr $tag, 1 + rindex $tag, '/' ;
+  }
+
+sub config_list
+  { my $self = shift ;
+    my $home = ( getpwuid $< ) [ 7 ] or die "can get homedir '$<' ($!)" ;
+      ( "$PRG.conf", "$home/.$PRG.conf", "/etc/$PRG.conf", '/dev/null' ) ;
+  }
+
+sub get_config
+  { my $self = shift ;
+    my %opts = @_ ;
+    my $root = $opts { -root } ;
+    unless ( defined $root )
+      { $root = ( grep { -f $_ || -c $_ ; } $self -> config_list ) [ 0 ] ;
+        if ( $root )
+          { $opts { -root } = $root ; }
+        else
+          { die sprintf "can't find a config file :\n  %s\n"
+              , join "\n  ", $self -> config_list ;
+          }
+      }
+
+    # now we have a root in $opts{-root}
+
+    Blib::Mods::Conf -> make ( -parent => $self, %opts ) ;
+  }
+
+sub try_reload_conf
+  { my $self = shift ;
+    my %opts = @_ ;
+    my $conf = $self -> conf ;
+    if ( $conf -> hot_config and $conf -> touched )
+      { RF::LOGx "config touched" ;
+        my $root = $conf -> root ;
+        my $new_conf = $self -> get_config ( -root => $root, %opts ) ;
+        if ( ref $new_conf )
+          { $conf = $self -> conf ( $new_conf ) ;
+            $conf -> show ( '  ' ) ;
+            $self -> set_loglevel ( $conf -> loglevel, 'reload' ) ;
+            RF::LOGx "config reloaded" ;
+          }
+        else
+          { chomp ( my $err = $new_conf ) ;
+            $self -> conf -> show ( '  ' ) ;
+            RF::LOGx $err ;
+            RF::LOGx "no new config loaded" ;
+          }
+      }
+  }
+
+sub mode { my $self = shift ; $self -> tag ? 'daemon' : 'plain' ; }
+
+sub req_file
+  { my $self = shift ;
+    sprintf "%s/%s.%s" , $self -> conf -> temp, $REQ_LIST
+      , ( $self -> dtag || 'term' ) ;
+  }
+
+sub put_req_file
+  { my $self = shift ;
+    my $list = shift ;
+    my $file = $self -> req_file ;
+    open FILE, ">$file" or die "put_req_file $file : fail ($!)" ;
+    printf FILE "%s\n", join "\n", @$list ;
+    close FILE ;
+  }
+
+sub next_status
+  { my $self = shift ;
+    my $stat = shift ;
+    my $push = shift ;
+    my $prev = $self -> status ;
+    $self -> status ( $stat ) ;
+    $self -> scores -> put_scoreboards if $push ;
+    $prev ;
+  }
+
+sub status_html
+  { my $self = shift ;
+    my $stat = $self -> status ;
+    $stat eq 'looping' ? $stat : "<SPAN CLASS=\"iim_red\">$stat</SPAN>" ;
+  }
+
+sub age
+  { my $self = shift ;
+    my $stmp = $self -> path ( 'local', $STAMP ) ;
+    my $res  = 'undef' ;
+    if ( open STMP, $stmp )
+      { my $line = <STMP> ;
+        my $time = ( split ' ', $line ) [ 0 ] ;
+        if ( $time =~ /^\d+$/ )
+          { $res = $self -> conf -> _text4secs ( time - $time, 0 ) ; }
+        close STMP ;
+      }
+    $res ;
+  }
+
+sub xlock
+  { my $self = shift ;
+    my $file = shift ;
+    my $cnt  = 0 ;
+    my $res  = 0 ;
+
+    unless ( open LOCK, ">$file" )
+      { LOGx "can't write lock $file" ; exit ; }
+    while ( $cnt < $LOCK_TRIES )
+      { if ( flock LOCK, LOCK_EX|LOCK_NB )
+          { $res = 1 ; last ; }
+        $cnt ++ ;
+        sleep $LOCK_SLEEP ;
+      }
+    $res ;
+  }
+
+sub start_daemon
+  { my $self = shift ;
+    my $name = shift ;
+    my $prog = $self -> conf -> prog_iim || 'no-such-file' ;
+    my @args = @_ ;
+    my $pid ;
+
+    if ( ! defined $prog or ! -f $prog )
+      { if ( $self -> terse )
+          { LOGf "can't find file '%s' ; daemon can't run.", $prog ;
+            LOGf "suggestion : configure option 'prog_iim'."
+          }
+        $self -> _exit ( 1, "can't find $prog" ) ;
+      }
+
+    unless ( -d $name or mkdir $name, 0755 )
+      { LOGx "can't mkdir $name ($!)" ; $self -> _exit ( 1 ) ; }
+
+    unless ( $self -> xlock ( "$name/$LCK_FILE" ) )
+      { LOGx "can't lock ; daemon '$name' is already running"
+          if $self -> terse ;
+        $self -> _exit ;
+      }
+
+    my $daemon = Proc::Daemon -> new
+      ( work_dir     => '.'
+      , exec_command =>
+          ( sprintf 'perl %s %s' , $prog, join ' '
+              , grep { ! /^--?q$/ ; }
+                map { /^--?daemon$/ ? '--tag' : $_ ; }
+                @args
+          )
+      , child_STDOUT => ">>$name/$LOG_FILE"
+      , child_STDERR => ">>$name/$LOG_FILE"
+      , pid_file     => "$name/$PID_FILE"
+      ) ;
+
+    if ( -f "$name/$PID_FILE"
+     and $pid = $daemon -> Status ( "$name/$PID_FILE" )
+       )
+      { LOGx "iim '$name' is already running ; pid $pid"
+          if $self -> terse ;
+      }
+    else
+      { $pid = $daemon -> Init () ;
+        LOGx "started iim daemon '$name' ; pid $pid" ;
+      }
+  }
+
+sub be_the_daemon
+  { my $self = shift ;
+    my $name = shift ;
+    unless ( $self -> xlock ( "$name/$LCK_FILE" ) )
+      { LOGx "can't lock ; can't be the daemon" ;
+        $self -> _exit ;
+      }
+    $self -> tag ( $name ) ;
+    $self -> reopen_log ;
+  }
+
+sub _sleep
+  { my $self = shift ;
+    my $ival = shift ;
+    my $time = $self -> conf -> $ival ;
+    LOGx "sleeping $time ($ival) ..."
+      if $self -> debug or $ival ne 'sleep_main_loop' ;
+    $self -> scores -> put_scoreboards ;
+    $self -> scores -> incr_t_slp ( $time ) ;
+    sleep $time ;
+  }
+
+sub _exit
+  { my $self = shift ;
+    my $stat = shift || 0 ;
+    my $diag = shift || '' ;
+    my $mesg = "exit ($stat)" . ( $diag ? " - $diag" : '' ) ;
+    LOGx $mesg if $self -> terse ;
+    $self -> status ( $mesg ) ;
+    $self -> scores -> put_scoreboards if $self -> terse ;
+    exit $stat ;
+  }
+
+sub set_umask
+  { my $self = shift ;
+    my $umask = oct $self -> conf -> iim_umask ;
+    my $pmask = umask $umask ;
+    LOGf "set umask 0%o -> 0%o", $pmask, $umask
+      if $umask != $pmask and $self -> debug ;
+  }
+
+sub check_max_run_time
+  { my $self = shift ;
+    my $max  = $self -> conf -> max_run_time ;
+    if ( $max and time >= $^T + $max )
+      { LOGx "scheduled exit" ; $self -> _exit }
+  }
+
+sub log_next_exit
+  { my $self = shift ;
+    my $max  = $self -> conf -> max_run_time ;
+    LOGx
+      ( $max
+      ? sprintf 'exit scheduled at %s', scalar localtime $^T + $max
+      : 'no exit is scheduled'
+      ) ;
+  }
+
+sub want_rotate_now
+  { my $self  = shift ;
+    my $count = $self -> conf -> rotate -> { count } ;
+    $self -> tag and $count and time > $self -> next_rotate ;
+  }
+
+sub _rotate_logs
+  { my $self = shift ;
+    my $log  = shift ;
+    my $cnt  = $self -> conf -> rotate -> { count } ;
+    unlink "$log.$cnt" ; # ignore status
+    for ( my $i = $cnt - 1 ; $i > 0 ; $i -- )
+      { my $src = sprintf "%s.%s", $log, $i ;
+        my $dst = sprintf "%s.%s", $log, $i + 1 ;
+        rename $src, $dst or LOGx "can't rename $src, $dst"
+          if -f $src ;
+      }
+    my $dst = "$log.1" ;
+    rename $log, $dst or LOGx "can't rename $log, $dst" if -f $log ;
+  }
+
+sub want_reopen_now
+  { my $self = shift ; $self -> tag and time > $self -> next_reopen ; }
+
+sub reopen_log
+  { my $self = shift ;
+    my $tag  = $self -> tag ;
+    if ( $tag )
+      { my $log = "$tag/$LOG_FILE" ;
+        if ( $self -> want_rotate_now )
+          { LOGx "rotate $log" if $self -> terse ;
+            $self -> _rotate_logs ( $log ) ;
+            $self -> next_rotate
+              ( time + $self -> conf -> rotate -> { ival } ) ;
+          }
+        LOGx "reopen_log $log" if $self -> debug ;
+        close STDOUT ;
+        unless ( open STDOUT, ">>$log" )
+          { printf STDERR
+              "re_open_log : can't write $log (again) for STDOUT ; exit\n" ;
+            $self -> _exit ( 1 ) ;
+          }
+        close STDERR ;
+        unless ( open STDERR, '>>&STDOUT' )
+          { printf STDOUT
+              "re_open_log : can't write $log (again) for STDERR ; exit\n" ;
+            $self -> _exit ( 1 ) ;
+          }
+        select STDERR ; $| = 1 ;
+        select STDOUT ; $| = 1 ;
+        $self -> next_reopen ( time + $REOPEN_IVAL ) ;
+      }
+  }
+
+sub set_next_full
+  { my $self = shift ;
+    my $ival = shift || 'full_sync_interval' ;
+    if ( $self -> conf -> full_sync_interval )
+      { my $next = time + $self -> conf -> $ival ;
+        LOGf ( "full sync scheduled at %s", scalar localtime $next ) ;
+        $self -> next_sync ( $next ) ;
+      }
+    else
+      { $self -> next_sync ( 0 ) ; }
+    $self -> next_sync ;
+  }
+
+sub want_full_now
+  { my $self = shift ;
+    if ( $self -> conf -> full_sync_interval )
+      { my $next = $self -> next_sync ; $next and time > $next ; }
+    else
+      { 0 ; }
+  }
+
+sub version { sprintf '%s-%s', $PRG, $VERSION ; }
+sub Version { sprintf '%s version %s', $PRG, $VERSION ; }
+sub Revision
+  { my $rev =
+      ( map { /(\d+)/ ; $1 ; } ( `svn info -r HEAD | grep Revision` ) ) [ 0 ] ; 
+    sprintf '%s-%s-%s', $PRG, $VERSION, $rev ;
+  }
+
+sub mk_temps
+  { my $self = shift ;
+    my $conf = $self -> conf ;
+    use File::Path qw(mkpath rmtree) ;
+    my $temp = $conf -> temp ;
+    mkpath $temp ; # or die
+    for my $dir ( $conf -> rtmp )
+      { rmtree $dir if -d $dir ;
+        mkdir $dir, 0777 or die "can't mkdir $dir ($!)" ;
+      }
+    my $logo_dst = $self -> path ( 'temp', $IIM_LOGO ) ;
+    my $tmpl_dst = $self -> path ( 'temp', $SCB_SMPL ) ;
+    Logo -> save_as ( $logo_dst ) ;
+    Tmpl -> save_as ( $tmpl_dst ) ;
+  }
+
+sub _get_json
+  { my $self = shift ;
+    my $file = shift ;
+    open FILE, $file or Carp::confess ( "can't open json '$file' ($!)" ) ;
+    my $json = $LCL_JSON -> new -> decode ( join '', <FILE> ) ;
+    close FILE ;
+    $json ;
+  }
+
+sub get_json
+  { my $self = shift ;
+    my $file = shift ;
+    my $json = $self -> _get_json ( $file ) ;
+    $self -> type -> bless ( $json ) ;
+  }
+
+sub name_recent_file
+  { my $self = shift ;
+    my $interval = shift || $AGGREGATOR -> [ 0 ] ;
+    sprintf "RECENT-%s.json", $interval ;
+  }
+
+sub all_Recents
+  { my $self = shift ;
+    [ map { $self -> name_recent_file ( $_ ) ; } @$AGGREGATOR ] ;
+  }
+
+sub have_all_Recents
+  { my $self = shift ;
+    my $res = 1 ;
+    for my $name ( @{ $self -> all_Recents } )
+      { $res = 0 unless $self -> lstt ( 'local', $name ) ; }
+    LOGx "some Recents are missing ..." unless $res ;
+    $res ;
+  }
+
+sub get_Recents
+  { my $self = shift ;
+    my $conf = $self -> conf ;
+    my %inos = () ;
+    my $names =  $self -> all_Recents ;
+    my $res ;
+    for my $name ( @$names )
+      { $inos { $name } = $self -> temp_ino ( $name ) ; }
+
+    $res = $self -> get_remote ( $names, 'r' ) ;
+
+    for my $name ( @$names )
+      { my $old = $inos { $name } ;
+        my $new = $self -> temp_ino ( $name ) ;
+        my $dst = $self -> path ( 'temp', $name ) ;
+        Carp::confess ( "get_Recents: bad dst ($dst)" ) unless -f $dst ;
+        unless ( defined $old )
+          { Carp::confess ( "get_Recents: undefined ino old" ) }
+        elsif ( ! defined $new )
+          { Carp::confess ( "get_Recents: undefined ino new" ) }
+        elsif ( $old != $new )
+          { my $size = -s $dst ;
+            $self -> scores -> incr_fetf ;
+            $self -> scores -> incr_fetr ;
+            $self -> scores -> incr_s_fil ( $size ) ;
+            $self -> scores -> incr_s_rct ( $size ) ;
+          }
+      }
+    $res ;
+  }
+
+sub get_Recents_repeat
+  { my $self = shift ;
+    my $cnt  = 0 ;
+    while ( ! $self -> get_Recents )
+      { LOGx "get_Recents failed ; sleeping ..." ;
+        $self -> _sleep ( ++ $cnt < 3 ? 'nap' : 'sleep_main_loop' ) ;
+      }
+  }
+
+sub link_Recents
+  { my $self = shift ;
+    LOGx "link_Recents: link local in temp" if $self -> debug ;
+    for my $name ( @{ $self -> all_Recents } )
+      { my $src  = $self -> lstt ( 'local', $name ) ;
+        my $dst  = $self -> path ( 'temp',  $name ) ;
+        if ( $src )
+          { unlink $dst ; link $src, $dst ; }
+        else
+          { LOGx "link_Recents: no src for $dst" ; }
+      }
+  }
+
+sub move_Recent
+  { my $self = shift ;
+    my $name = shift ;
+    my $src = $self -> conf -> temp  . "/$name" ;
+    my $dst = $self -> conf -> local . "/$name" ;
+
+    unless ( -f $src )
+      { LOGx "move_Recent: no $src" ; }
+    elsif ( ! -f $dst )
+      { LOGx "move_Recent: no $dst" ; }
+    else
+      { my ( $i_src, $t_src ) = ( stat $src ) [ $INO, $MTIME ] ;
+        my ( $i_dst, $t_dst ) = ( stat $dst ) [ $INO, $MTIME ] ;
+
+        if ( $i_src != $i_dst and $t_src > $t_dst )
+          { unlink $dst ;
+            link $src, $dst ;
+            LOGx "move from temp to local : $name"
+              if $self -> verbose or $name !~ /^RECENT-\dh\.json$/ ;
+          }
+      }
+  }
+
+sub move_Recents
+  { my $self = shift ;
+    for my $name ( @{ $self -> all_Recents } )
+      { $self -> move_Recent ( $name ) ; }
+  }
+
+sub by_epoch { $b -> { epoch } <=> $a -> { epoch } ; }
+sub merge { my $self = shift ; [ sort by_epoch map { ( @$_ ) ; } @_ ] ; }
+
+sub log_sync_stat
+  { my $self = shift ;
+    my $stat = shift ;
+    my $tag  = shift ;
+    my $sig  = ( $stat & 127 ) ;
+    my $xit  = ( $stat >> 8  ) ;
+
+    if ( $stat == -1 )
+      { LOGx "$tag: failed to execute: $!" ; }
+    elsif ( $sig )
+      { LOGx "$tag: child died on signal $sig" ; }
+    elsif ( $xit )
+      { LOGx "$tag: child exited with value $xit" ; }
+  }
+
+sub get_remote
+  { my $self = shift ;
+    my $fils = shift ;
+    my $kind = shift || '' ; # 'r' for Recents
+    my $conf = $self -> conf ;
+    my $sync = $self -> sync ;
+    my $prev = $self -> next_status ( 'syncing' ) ;
+
+    $self -> scores -> incr_rs ;
+    $sync -> request ( $fils, $kind ) ;
+
+    my $time = $sync -> timer ;
+    my $err  = $sync -> error ;
+
+    if ( $err == -1 )
+      { RF::LOGf "Sync::open : no pipe for %s", $sync -> cmd ; }
+    elsif ( $err )
+      { $self -> log_sync_stat ( $err, 'get_remote' ) ;
+        $self -> scores -> incr_rsf ;
+        $self -> scores -> incr_t_out ( $time ) ;
+      }
+    else
+      { $self -> scores -> incr_t_con ( $time ) ; }
+
+    $self -> next_status ( $prev ) ;
+
+    ! $err ;
+  }
+
+sub full_sync
+  { my $self = shift ;
+    my $doit = shift ;
+    my $conf = $self -> conf ;
+    my $sync = $self -> sync ;
+    my $prev = $self -> next_status ( 'full sync', 'push' ) ;
+
+    unless ( $doit or $self -> conf -> allow_full_syncs )
+      { LOGx "full_sync : not allowed " ; $self -> _exit ( 1 ) ; }
+    LOGx 'full sync start' ;
+    $self -> scores -> incr_frs ;
+
+    my $err  = $sync -> full  ;
+    my $time = $sync -> timer ;
+
+    if ( $err )
+      { $self -> log_sync_stat ( $err, 'full sync' ) ;
+        $self -> scores -> incr_t_out ( $time ) ;
+        $self -> scores -> incr_frsf ;
+      }
+    else
+      { LOGx 'full sync: ok' ; $self -> scores -> incr_t_frs ( $time ) ; }
+
+    $self -> next_status ( $prev ) ;
+
+    ! $err ;
+  }
+
+sub full_sync_repeat
+  { my $self = shift ;
+    my $doit = shift ;
+    my $prev = $self -> next_status ( 'full syncs until success' ) ;
+    LOGx "doing full syncs until one succeeds" ;
+    while ( ! $self -> full_sync ( $doit ) )
+      { LOGx "full sync failed ; sleeping ..." ;
+        $self -> _sleep ( 'sleep_init_epoch' ) ;
+      }
+    $self -> next_status ( $prev ) ;
+  }
+
+sub compare
+  { my $self = shift ;
+    my $conf = $self -> conf ;
+    my $sync = $conf -> prog_rsync ;
+    my $user = $conf -> user ? $conf -> user . '@' : '' ;
+    my $remo = $user . $conf -> remote ;
+    my $locl = $conf -> local  ;
+    my @cmd  = ( $sync , @RSYNC_CMP , $remo , $locl ) ;
+    LOGf "%s\n", join ' ', @cmd ;
+    exec @cmd ;
+  }
+
+sub path
+  { my $self = shift ;
+    my $tree = shift ;
+    my $path = shift ;
+    sprintf "%s/%s", $self -> conf -> $tree, $path ;
+  }
+
+sub lstt
+  { my $self = shift ;
+    my $tree = shift ;
+    my $path = shift ;
+    my $file = $self -> path ( $tree, $path ) ;
+    ( lstat $file ) ? $file : undef ;
+  }
+
+sub in_locl { my $self = shift ; $self -> lstt ( 'local', $_[0] ) ; }
+sub in_temp { my $self = shift ; $self -> lstt ( 'temp',  $_[0] ) ; }
+
+sub get_EPOCH_local_or_remote
+  { my $self = shift ;
+    my $src  = shift ;
+    die "get_EPOCH_local_or_remote : bad src ($src)"
+      unless $src eq 'remote' or $src eq 'local' ;
+    my $name = $self -> name_recent_file ;
+    my $res ;
+    while ( ! $res and $name )
+      { my $file =
+          ( ( $src eq 'remote' )
+          ? $self -> in_temp ( $name )
+          : $self -> in_locl ( $name )
+          ) ;
+        return undef unless defined $file ;
+        my $json   = $self -> get_json ( $file ) ;
+        my $events = $json -> recent ;
+        my $next   =
+          ( exists $json -> meta -> { merged }
+          ? $json -> meta -> merged -> into_interval
+          : undef
+          ) ;
+        if ( @$events )
+          { $res = $events -> [ 0 ] -> epoch ; }
+        elsif ( ! defined $next )
+          { LOGx "no next in $name" ; return undef ; }
+        else
+          { $name = $self -> name_recent_file ( $next ) ; }
+      }
+    $res ;
+  }
+
+sub get_EPOCH_remote
+  { my $self = shift ;
+    $self -> get_Recents_repeat ;
+    $self -> get_EPOCH_local_or_remote ( 'remote' ) ;
+  }
+
+sub get_EPOCH_local
+  { my $self = shift ; $self -> get_EPOCH_local_or_remote ( 'local'  ) ; }
+
+sub set_epoch
+  { my $self = shift ;
+    my $epoc = shift ;
+    LOGf "set EPOCH %s", $epoc ;
+    $self -> epoc ( $epoc ) ;
+    $epoc ;
+  }
+
+sub _init_epoch
+  { my $self = shift ;
+    my $conf = $self -> conf ;
+    my $ival = $conf -> max_age_init ;
+    my $res  = undef ;
+
+    my $epoc_r = $self -> get_EPOCH_remote ;
+
+    if ( ! $epoc_r )
+      { LOGx "can't get epoch from remote" ; }
+    else
+      { LOGx $conf -> age4epoc ( 'remote', $epoc_r ) ;
+        my $epoc_l = $self -> get_EPOCH_local ;
+        if ( ! $epoc_l or $epoc_r - $epoc_l > $ival )
+          { if ( $epoc_l )
+              { my $itxt = $conf -> _text4secs ( $ival, 0 ) ;
+                LOGx $conf -> age4epoc ( 'local', $epoc_l ) ;
+                LOGx "remote is more than $itxt ahead" ;
+              }
+            else
+              { LOGx "no local epoch" ; }
+            $self -> full_sync_repeat ;
+          }
+        else
+          { LOGx $conf -> age4epoc ( 'local', $epoc_l ) ;
+            LOGx 'set epoch from local' ;
+            $res = $epoc_l ;
+          }
+      }
+    $res ;
+  }
+
+sub init_epoch
+  { my $self = shift ;
+    my $epoc =  $self -> _init_epoch ;
+    while ( ! defined $epoc )
+      { $self -> _sleep ( 'sleep_init_epoch' ) ;
+        $epoc = $self -> _init_epoch ;
+      }
+    $self -> set_epoch ( $epoc ) ;
+  }
+
+sub mtime { my $self = shift ; ( lstat $_ [ 0 ] ) [ $MTIME ] ; }
+sub nlink { my $self = shift ; ( lstat $_ [ 0 ] ) [ $NLINK ] ; }
+sub lsize { my $self = shift ; ( lstat $_ [ 0 ] ) [ $SIZE  ] ; }
+sub ino   { my $self = shift ; ( lstat $_ [ 0 ] ) [ $INO   ] ; }
+sub is_dir { my $self = shift ; my $name = shift ; lstat $name ; -d _ ; }
+sub temp_ino
+  { my $self = shift ;
+    my $path = shift ;
+    $self -> ino ( $self -> path ( 'temp', $path ) ) ;
+  }
+
+sub events_since_ival
+  { my $self = shift ;
+    my $ival = shift ;
+    my $epoc = $self -> epoc ;
+    my $name = $self -> name_recent_file ( $ival ) ;
+    my $res  ;
+    my $rec  = [] ;
+    my $file = $self -> in_temp ( $name ) ;
+    if ( defined $file )
+      { my $json = $self -> get_json ( $file ) ;
+        my $events = $json -> recent ;
+        for my $event ( @$events )
+          { $event -> init ( base => $self, ival => $ival ) ; }
+        # recurse if all events (if any) are older than $epoc
+        # event are ordered new to old ; the last is eldest
+        # meta -> merged does not exist in Z ; it should be 'merged:null'
+        my $e_cnt = @$events ;
+        if ( ( $e_cnt == 0 or $epoc < $events -> [ $e_cnt - 1 ] -> epoch )
+         and ( exists $json -> meta -> { merged } )
+           )
+          { my $next = $json -> meta -> merged -> into_interval ;
+            if ( $next )
+              { $rec = $self -> events_since_ival ( $next ) ; }
+            # else don't recurse ;
+          }
+        if ( ref $rec )
+          { my $mark = $epoc ;
+            $mark = $rec -> [ 0 ] -> epoch if @$rec ;
+            my $new = [ grep { $_ -> epoch > $mark } @$events ] ;
+            $res = RF -> merge ( $rec, $new ) ;
+          }
+        else
+          { # an error occured in recursion ; return the error
+            $res = $rec ;
+          }
+      }
+    else
+      { $res = "events_since_ival: missing in temp ($name)" ; }
+    $res ;
+  }
+
+sub new_events
+  { my $self = shift ;
+    my $res = $self -> events_since_ival ( '1h' ) ;
+    if ( ref $res )
+      { my $ev  = @$res ;
+        my $evn = grep { $_ -> type eq 'new' } @$res ;
+        my $evd = $ev - $evn ;
+        $self -> scores -> incr_ev  ( $ev ) ;
+        $self -> scores -> incr_evn ( $evn ) ;
+        $self -> scores -> incr_evd ( $evd ) ;
+      }
+    else
+      { LOGx $res ; $res = [] ; }
+    $res ;
+  }
+
+sub find_new_events
+  { my $self = shift ;
+    my $res = [] ;
+
+    my $events = $self -> new_events ;
+    if ( ref $events )
+      { my $show =
+          ( $self -> verbose
+          ? $events
+          : [ grep { $_ -> must_show } @$events ]
+          ) ;
+        LOGx $self -> show_events ( $show ) if @$show ;
+        $res = $events ;
+      }
+    else
+      { LOGx $events ; }
+    $res ;
+  }
+
+sub show_events
+  { my $self = shift ;
+    my $list = shift ;
+    my $res  = '' ;
+    if ( @$list )
+      { my $news = join "\n  ", map
+          { my $have = $self -> in_locl ( $_ -> path ) ;
+            my $del = 'del ' .
+              ( $have
+              ? ( -l $have
+                ? 'lnk'
+                : ( -d $have
+                  ? 'dir'
+                  : ( -f $have ? 'fil' : 'xxx' )
+                  )
+                )
+              : 'dud'
+              ) ;
+            sprintf "%.5f %s %-7s %s"
+              , $_ -> epoch
+              , $_ -> ival
+              , ( ( $_ -> type eq 'new' and $have )
+                ? 'new upd'
+                : ( ( $_ -> type eq 'delete' ) ? $del : $_ -> type )
+                )
+              , $_ -> path
+              ;
+          } reverse @$list ;
+
+        $res = sprintf "---------------------------------------\n  %s", $news ;
+      }
+    $res ;
+  }
+
+sub Readdir
+  { my $self = shift ;
+    my $dir  = shift ;
+    my $res = [] ;
+    if ( opendir DIR, $dir )
+      { $res = [ grep { ! /^\.\.?$/ } sort readdir DIR ] ; closedir DIR ; }
+    $res ;
+  }
+
+sub Rm
+  { my $self = shift ;
+    my $fil  = shift ;
+    print "rm $fil\n" if $self -> debug ;
+    unlink $fil ;
+  }
+
+sub Rm_rf
+  { my $self = shift ;
+    my $obj  = shift ;
+    print "rm-rf $obj\n" if $self -> debug ;
+    if ( -l $obj or -f $obj )
+      { $self -> Rm ( $obj ) ; }
+    elsif ( -d $obj )
+      { for my $fil ( map { "$obj/$_" ; } @{ $self -> Readdir ( $obj ) } )
+          { $self -> Rm_rf ( $fil ) ; }
+        rmdir $obj ;
+      }
+  }
+
+sub get_batch
+  { my $self   = shift ;
+    my @eqs    = @_ ;
+    my $conf   = $self -> conf ;
+    my $local  = $conf -> local ;
+    my @news   = () ;
+    my %ev4pat = () ;
+    my $events = RF -> merge ( @eqs ) ;
+    my $todo   = [] ;
+    my $xcrds  = [] ;
+    my $addf   = 0 ;
+    my $adds   = 0 ;
+    my $delf   = 0 ;
+    my $dels   = 0 ;
+
+    # find the last event per path
+    for my $event ( reverse @$events )
+      { $ev4pat { $event -> path } = $event ; }
+
+    for my $event ( values %ev4pat )
+      { my $type = $event -> type ;
+        my $path = $event -> path ;
+        my $file = sprintf "%s/%s", $local, $path ;
+        if ( $type eq 'new' )
+          { if ( $self -> is_dir ( $file ) )
+              { LOGx "get_batch : shouldn't happen : Rm_rf ($file)" ;
+                $self -> Rm_rf ( $file ) ;
+              }
+            push @news, $event ;
+          }
+        elsif ( $type eq 'delete' )
+          { $delf ++ ; $dels += $event -> score_del ;
+            $self -> Rm_rf ( $file ) ;
+          }
+        else
+          { LOGf "weird event type (%s) path (%s)", $type, $path ; }
+      }
+
+    $self -> get_remote ( [ map { $_ -> path } @news ] ) ;
+
+# $event -> tries counts tries resulting in partial xfers
+# ------------------
+# xfer | done | todo
+# ------------------
+# ok   |    0 | -
+# miss |    0 | incr tries ; push discard-candidates
+# fail |    0 | push todo
+# ok   |    1 | -
+# miss |    1 | -
+# fail |    1 | -
+
+    for my $event ( @news )
+      { my $path = $event -> path ;
+        if ( $self -> sync -> is_ok or $event -> is_done )
+          { $addf ++ ; $adds += $event -> score_add ; }
+        elsif ( $self -> sync -> is_partial )
+          { $event -> incr_tries ; push @$xcrds, $event ; }
+        else
+          { push @$todo, $event ; }
+      }
+
+    LOGf "%s ;\n  files add/replace [bytes] %d [%d] delete %d [%d]"
+      , $self -> sync -> report, $addf, $adds, $delf, $dels
+        if $self -> verbose ;
+
+    for my $event ( @$xcrds )
+      { my $path = $event -> path ;
+        LOGf "todo %s - tries %s", $path, $event -> tries ;
+        if ( $event -> tries < $MAX_TRIES )
+          { push @$todo, $event ; }
+        else
+          { # fetch just this $path and discard
+            # if sync is 'partial' and 'number of files: 0'
+            my $type = $event -> type ;
+            LOGf "$MAX_TRIES tries for %s ; discard?", $path ;
+            $self -> get_remote ( [ $path ] ) ;
+            my $epoc = $event -> epoch ;
+            if ( $self -> sync -> is_ok )
+              { LOGf "fetched %s %s %s", $type, $epoc, $path ;
+                $addf ++ ; $adds += $event -> score_add ;
+              }
+            elsif ( $self -> sync -> is_partial_no_files )
+              { LOGf "discard %s %s %s", $type, $epoc, $path ;
+                $self -> scores -> incr_evxd ;
+              }
+            else
+              { my $err = $self -> sync -> error ;
+                LOGf "rsync returned (%s)" , ( $err || 'undef' ) ;
+                LOGf "don't discard %s %s %s", $type, $epoc, $path ;
+                push @$todo, $event ;
+              }
+          }
+      }
+    [ sort { $b -> epoch <=> $a -> epoch } @$todo ] ;
+  }
+
+package Blib::JSON::rfile::recent::event ;
+
+eval Blib -> mk_methods ( qw(base ival tries ino) ) ;
+
+my $SKIP_files =
+  [ 'MIRRORED.BY'
+  , 'MIRRORING.FROM'
+  , 'SITES.html'
+  , 'index.html'
+  , 'indices/du-k.gz'
+  , 'indices/find-ls.gz'
+  , 'indices/ls-lR.gz'
+  , 'indices/mirrors.json'
+  , 'indices/timestamp.txt'
+  , 'indices/cpan-stats.json'
+  , 'misc/cpan-faq.html'
+  , 'authors/02STAMP'
+  , 'authors/00whois.html'
+  , 'authors/00whois.xml'
+  , 'modules/02STAMP'
+  , 'modules/01modules.index.html'
+  , 'modules/01modules.mtime.html'
+  , 'modules/01modules.mtime.rss'
+  , 'modules/02packages.details.txt'
+  , 'modules/02packages.details.txt.gz'
+  , 'modules/06perms.txt'
+  , 'modules/06perms.txt.gz'
+  , 'modules/07mirror.json'
+  , 'modules/07mirror.yml'
+  ] ;
+
+my %SKIP = ( pats => [ '^(authors|modules)/RECENT' ] , fils => {} ) ;
+for my $path ( @$SKIP_files ) { $SKIP { fils } { $path } ++ ; }
+
+sub init
+  { my $self = shift ;
+    $self -> Blib::JSON::init ( @_ ) ;
+    my $base = $self -> base ;
+    my $efil = $base -> path ( 'local', $self -> path ) ;
+    my $eino = $base -> ino ( $efil ) ;
+    $self -> ino ( $eino ) ;
+    $self -> tries ( 0 ) ;
+    $self ;
+  }
+
+sub must_show
+  { my $self = shift ;
+    my $path = $self -> path ;
+    return 0 if exists $SKIP { fils } { $path } ;
+    for my $pat ( @{ $SKIP { pats } } )
+      { return 0 if $path =~ /$pat/ ; }
+    1 ;
+  }
+
+sub incr_tries
+  { my $self  = shift ;
+    my $tried = $self -> tries ;
+    $self -> tries ( $tried + 1 ) ;
+    $self -> tries ;
+  }
+
+sub is_done
+  { my $self = shift ;
+    my $base = $self -> base ;
+    my $path = $self -> path ;
+    my $file = $base -> path ( 'local', $path ) ;
+    my $new  = ( lstat $file ) [ $INO ] ;
+    my $old  = $self -> ino ;
+    my $res  =
+      ( defined $old
+      ? ( defined $new and $new != $old )
+      : ( defined $new )
+      ) || 0 ;
+    RF::LOGx "done $path" if $res and $base -> verbose ;
+    $res ;
+  }
+
+sub score_add
+  { my $self = shift ;
+    my $base = $self -> base ;
+    my $path = $self -> path ;
+    my $file = $base -> path ( 'local', $path ) ;
+    my $size = 0 ;
+    if ( -l $file )
+      { $base -> scores -> incr_fetl ; }
+    elsif ( -f $file )
+      { $size = -s $file ;
+        $base -> scores -> incr_fetf ;
+        $base -> scores -> incr_s_fil ( $size ) ;
+        unless ( defined $self -> ino )
+          { $base -> scores -> incr_fetn ;
+            $base -> scores -> incr_s_new ( $size ) ;
+          }
+      }
+    elsif ( ! -d $file )
+      { RF::LOGf "*** can't score file/link ($file)" ; }
+    RF::LOGf "score %8d %s", $size, $path if $base -> debug ;
+    $size ;
+  }
+
+sub score_del
+  { my $self = shift ;
+    my $base = $self -> base ;
+    my $file = $base -> path ( 'local', $self -> path ) ;
+    my $size = 0 ;
+    if ( -l $file )
+      { $base -> scores -> incr_dell ; }
+    elsif ( -f $file )
+      { $size = -s $file ;
+        $base -> scores -> incr_delf ;
+        $base -> scores -> incr_s_del ( $size ) ;
+      }
+    elsif ( -d $file )
+      { $base -> scores -> incr_deld ; }
+    else
+      { $base -> scores -> incr_ddud ; }
+    $size ;
+  }
+
+##########################################################
+package Blib::Mods ;
+
+@Blib::Mods::ISA = qw(Blib) ;
+
+sub print  { print  @_ ; }
+sub printf { printf @_ ; }
+
+##########################################################
+package Blib::Mods::Conf ;
+
+@Blib::Mods::Conf::ISA = qw(Blib) ;
+
+our %CNF_defaults =
+  ( remote              => 'cpan-rsync.perl.org::CPAN'
+  , user                => ''
+  , passwd              => ''
+  , sleep_init_epoch    => '15m'
+  , sleep_main_loop     => '1m'
+  , full_sync_interval  => '0'
+  , max_run_time        => '4w-15m'
+  , model_file          => ''
+  , prog_rsync          => '/usr/bin/rsync'
+  , prog_iim            => $0
+  , scoreboard_file     => ''
+  , scoreboard_template => ''
+  , allow_full_syncs    => '1'
+  , hot_config          => '0'
+  , loglevel            => 'terse'
+  , iim_umask           => $UMASK
+  , rotate              => { count => '8' , ival  => '4w' }
+  , timeout             => '300s'
+  ) ;
+
+our @REQ_KEYS   = qw(local) ;
+
+our $model = <<'MODEL' ;
+{ "recent" :
+     [ { "epoch" : "1307095198.77243"
+       , "path"  : "authors/RECENT-1h.yaml"
+       , "type"  : "new"
+       }
+     ]
+, "meta" :
+    { "aggregator" : [ "1h", "6h", "1d", "1W", "1M", "1Q", "1Y", "Z" ]
+    , "protocol"   : 1
+    , "interval"   : "1d"
+    , "Producers"  :
+        { "time" : 1307095198.80471
+        , "$0" : "/home/mirror/perl5/bin/rrr-server"
+        , "File::Rsync::Mirror::Recentfile" : "0.0.8"
+        }
+    , "filenameroot" : "RECENT"
+    , "minmax" :
+         { "mtime" : 1307091586
+         , "min"   : "1307009184.4988"
+         , "max"   : "1307095198.77243"
+         }
+    , "merged" :
+        { "into_interval" : "1W"
+        , "epoch" : "1307077006.35826"
+        , "time"  : 1307077006.43983
+        }
+    , "dirtymark"         : "1300184987.04785"
+    , "serializer_suffix" : ".json"
+    }
+}
+MODEL
+
+our %CNF_KEYS ;
+for ( @REQ_KEYS, keys %CNF_defaults ) { $CNF_KEYS { $_ } ++ ; }
+sub CNF_KEYS { sort keys %CNF_KEYS ; }
+sub set_CNF_default
+  { my $self = shift ;
+    my $key = shift ;
+    my $val = shift ;
+    Carp::confess "set_CNF_default : bad key ($key)"
+      unless exists $CNF_defaults { $key } ;
+    $CNF_defaults { $key } = $val ;
+  }
+
+eval Blib -> mk_methods
+  ( keys %CNF_KEYS, qw(parent _includes) ) ;
+
+sub init
+  { my $self = shift ;
+    my %opts = ( @_ ) ;
+    my $prnt = shift ;
+    my $file = shift ;
+
+    $self -> parent ( $opts { -parent } ) ;
+    $self -> _includes ( [] ) ;
+    my @keys = keys %CNF_defaults ;
+    @{ $self } { @keys } = @CNF_defaults { @keys } ;
+
+    my $err = $self -> get_conf ( $opts { -root } ) ;
+
+    if ( $err )
+      { $err ; }
+    else
+      { for my $key ( sort keys %CNF_KEYS )
+          { $self -> $key ( $opts{$key} ) if defined $opts{$key} ; }
+        $self -> errors or $self ;
+      }
+  }
+
+sub default
+  { my $self = shift ;
+    my $opt  = shift ;
+    die "default: nothing for $opt" unless exists $CNF_defaults { $opt } ;
+    $CNF_defaults { $opt } ;
+  }
+
+sub temp  { my $self = shift ; sprintf '%s/%s', $self -> local, $CPAN_TEMP ; }
+sub rtmp  { my $self = shift ; sprintf '%s/%s', $self -> temp, $RSYNC_TMP ; }
+sub model { my $self = shift ; $model ; }
+sub nap   { my $self = shift ; $SLEEP_NAP ; }
+
+sub add_incl
+  { my $self = shift ;
+    my $file = shift ;
+    my $stat = shift ;
+    push @{ $self -> _includes }
+      , Blib::Mods::Conf::Incl -> make ( $file, $stat ) ;
+  }
+
+sub includes
+  { my $self = shift ;
+    join ', ', map { $_ -> file ; } @{ $self -> _includes } ;
+  }
+
+sub root { my $self = shift ; $self -> _includes -> [ 0 ] -> file ; }
+
+sub _split
+  { my $str = shift ; map { $_ eq 'EMPTY' ? '' : $_ } split ' ', $str ; }
+
+sub _fmt_vu
+  { my $v = shift ;
+    my $u = shift ;
+    $v = sprintf "%.2f", $v if $v != int $v ;
+    $v ? "$v $u" . ( $v == 1 ? '' : 's' ) : '' ;
+  } ;
+
+my $units =
+  [ { nam => 'week'  , mod =>  0 }
+  , { nam => 'day'   , mod =>  7 }
+  , { nam => 'hour'  , mod => 24 }
+  , { nam => 'minute', mod => 60 }
+  , { nam => 'second', mod => 60 }
+  ] ;
+
+# init
+  { my $siz = 1 ;
+    my $mod = 1 ;
+    my $nxt = undef ;
+    for my $u ( reverse @$units )
+      { $u -> { siz } = $siz *= $mod ;
+        $u -> { nxt } = $nxt ;
+        $mod = $u -> { mod } ;
+        $nxt = $u ;
+      }
+  }
+
+sub set_cnts ;
+sub set_cnts
+  { my $prec = shift ;
+    my $unit = shift ;
+    my $ival = shift ;
+    my $nzs  = shift ;
+    return 0 unless $unit ;
+    my $res = 0 ;
+    my $siz = $unit -> { siz } ;
+    my $mod = $unit -> { mod } ;
+    if ( $prec and $nzs == $prec and $ival )
+      { $res = sprintf '%.2f', $ival / ( $mod * $siz ) ; }
+    else
+      { my $cnt = int ( $ival / $siz ) ;
+        my $nz  = ( $cnt ? 1 : 0 ) ;
+        $cnt += set_cnts
+          ( $prec, $unit -> { nxt }, $ival % $siz, $nzs + $nz ) ;
+        if ( $mod and $cnt == $mod )
+          { $cnt = 0 ; $res = 1 ; }
+        $unit -> { cnt } = $cnt ;
+      }
+    $res ;
+  } ;
+
+sub _text4secs
+  { my $self = shift ;
+    my $ival = shift ;
+    my $prec = shift ; $prec = 4 unless defined $prec ;
+
+    if ( 0.01 <= $ival and $ival < 60 )
+      { sprintf "%.2f seconds", $ival ; }
+    elsif ( $ival < 0 )
+      { sprintf "-%.2f seconds", -$ival ; }
+    else
+      { for my $u ( @$units ) { $u -> { cnt } = 0 ; }
+        $ival = int ( $ival + 0.5 ) ;
+        set_cnts ( $prec, $units -> [ 0 ], $ival, 0 ) ;
+        my $res = join ' ', map { _fmt_vu ( @{ $_ } { qw(cnt nam) } ) ; }
+          grep { $_ -> { cnt } } @$units ;
+        $res or '0 seconds' ;
+      }
+  }
+
+my %s4u = ( 's' => 1 ) ;
+$s4u { m } = 60 * $s4u { s } ;
+$s4u { h } = 60 * $s4u { m } ;
+$s4u { d } = 24 * $s4u { h } ;
+$s4u { w } =  7 * $s4u { d } ;
+
+sub s4uv
+  { my $v = shift ;
+    my $u = shift ;
+    $v =  1  unless defined $v and length $v ;
+    $u = 's' unless defined $u and length $u ;
+    die "500: no s4u {$u}" unless exists $s4u { $u } ;
+    $v * $s4u { $u } ;
+  }
+
+sub _secs4spec
+  { my $self = shift ;
+    my $attr = shift ;
+    my $spec = shift ;
+    my $num  = '[-+]?\d+(\.\d)?' ;
+    my $one  = "($num)?([smhdw]?)" ;
+    my $all  = "^($one)+\$" ;
+    my ( $res, $err ) ;
+
+    unless ( $spec =~ /$all/ )
+      { my $msg = '( [+-] NUM [smhdw] ) ...' ;
+        $err = "bad spec ($spec) for '$attr' ; should be like '$msg'" ;
+      }
+    else
+      { my $tmp = $spec ;
+        $res = 0 ;
+        while ( length $tmp )
+          { die "500: '$tmp' ~! /^$one/" unless $tmp =~ /^$one/ ;
+            my $num  = $1 ;
+            my $unit = $3 ;
+            $tmp = $' ;
+            $res += s4uv $num, $unit ;
+          }
+      }
+    $res, $err ;
+  }
+
+sub secs4spec
+  { my $self = shift ;
+    my $attr = shift ;
+    $self -> _secs4spec ( $attr, $self -> $attr ) ;
+  }
+
+sub age4epoc
+  { my $self = shift ;
+    my $kind = shift ;
+    my $epoc = shift ;
+    sprintf "age %-6s : %s", $kind
+      , $self -> _text4secs ( time - int ( $epoc ), 0 ) ;
+  }
+
+sub max_age_init
+  { my $self = shift ;
+    my $ival = $MAX_AGE_INIT ;
+    my ( $res, $err ) = $self -> _secs4spec ( 'max_age_init', $ival ) ;
+    if ( $err )
+      { die "bad max_age_init '$ival' ($err)" ; }
+    elsif ( ! $res )
+      { die sprintf "default_full_sync_interval shouldn't be '%s'"
+          , ( defined $res ? $res : '<undef>' ) ;
+      }
+    $res ;
+  }
+
+sub touched
+  { my $self = shift ;
+    my $res  = 0 ;
+    for my $incl ( @{ $self -> _includes } )
+      { my $mtim = ( stat $incl -> file ) [ $MTIME ] ;
+        $res = 1 if $mtim > $incl -> mtime ;
+      }
+    $res ;
+  }
+
+sub get_conf
+  { my $self = shift ;
+    my $FILE = shift ;
+    my $prnt = $self -> parent ;
+    my $stat = [ stat $FILE ] ;
+    my $err  = '' ;
+
+    unless ( @$stat )
+      { return "config : can't find config file '$FILE'\n" ; }
+    elsif ( grep { $_ -> is_file ( $stat ) ; } @{ $self -> _includes } )
+      { return "config error : '$FILE' is already included\n" ; }
+    else
+      { $self -> add_incl ( $FILE, $stat ) ; }
+
+    open FILE, $FILE or return "config $FILE: can't open '$FILE' ($!)" ;
+    my $CONF = join "\n", grep /./, <FILE> ;
+    close FILE ;
+
+    $CONF =~ s/\t/ /g ;           # replace tabs
+    $CONF =~ s/^[+ ]+// ;         # delete leading space, plus
+    $CONF =~ s/\n\n\s+/ /g ;      # glue continuation lines
+    $CONF =~ s/\n\n\+\s+//g ;     # glue concatenation lines
+    $CONF =~ s/\n\n\./\n/g ;      # glue concatenation lines
+
+    chomp $CONF ;
+    my $opt_d = $self -> debug ;
+    Blib::_pr ( sprintf "----\n%s\n----\n", join "\n", split /\n\n/, $CONF )
+      if $opt_d ;
+    for ( grep ! /^#/, split /\n\n/, $CONF )
+      { my ($key,$val) = split ' ', $_, 2 ;
+        $val = '' unless defined $val ;
+        $val = '' if $val eq 'EMPTY' ;
+        Blib::_pr ( "conf '$FILE' : key '$key', val '$val'\n" ) if $opt_d ;
+        if ( exists $CNF_KEYS { $key } )
+          { $self -> $key ( $val ) ; }
+        elsif ( $key eq 'temp' )
+          { print "ingnoring keyword 'temp' (deprecated) in file $FILE\n"
+               .  "- it is safe to remove the 'temp' line from $FILE\n"
+               .  ( $val ? "- iim will not use directory $val\n" : '')
+               ;
+          }
+        elsif ( $key eq 'include' )
+          { unless ( $val )
+              { $err .= "empty value for keyword '$key'" ; }
+            else
+              { $err .= $self -> get_conf ( $val ) ; }
+          }
+        elsif ( $key eq 'env' )
+          { my ( $x, $y ) = split ' ' , $val ; $ENV { $x } = $y ; }
+        else
+          { $err .= "config error in $FILE : "
+              . "unknown keyword '$key' value '$val'\n" ;
+          }
+      }
+    $err ;
+  }
+
+sub errors
+  { my $self = shift ;
+    my $req  = '' ;
+    my $err  = '' ;
+
+    for my $key ( @REQ_KEYS )
+      { $req .= "config error : missing required key '$key' ;\n"
+          . "  -> use 'iim --$key ...' or configure '$key ...'\n"
+          unless exists $self -> { $key } ;
+      }
+
+    for my $timspec
+      ( qw(full_sync_interval sleep_init_epoch sleep_main_loop)
+      , qw(max_run_time timeout)
+      )
+      { my ( $v, $r) = $self -> secs4spec ( $timspec ) ;
+        if ( $r )
+          { $err .= "config : $r\n" ; }
+        else
+          { $self -> $timspec ( $v ) ; }
+      }
+
+    { unless ( ref ( $self -> rotate ) )
+        { my ( $cnt, $ivl ) = split ' ', $self -> rotate ;
+          $cnt = $CNF_defaults { rotate } { count } unless defined $cnt ;
+          $ivl = $CNF_defaults { rotate } { ival  } unless defined $ivl ;
+          $self -> rotate ( { count => $cnt, ival => $ivl } ) ;
+        }
+      my $timspec = $self -> rotate -> { ival } ;
+      my ( $v, $r) = $self -> _secs4spec ( 'rotate interval', $timspec ) ;
+      if ( $r )
+        { $err .= "config : $r\n" ; }
+      else
+        { $self -> rotate -> { ival } = $v ; }
+      $v = $self -> rotate -> { count } ; ;
+      $err .= sprintf "config error : rotate count is not a number ($v) ;\n"
+        unless $v =~ /^[0-9]+$/ ;
+    }
+
+    for my $bool
+      ( qw(allow_full_syncs hot_config) )
+      { my $v = $self -> $bool ;
+        $err .= "config error : bad value for $bool ($v) ; must be 0 or 1\n"
+          unless $v =~ /^[01]$/ ;
+      }
+
+    { my $v = $self -> loglevel ;
+      $err .= sprintf "config error : bad loglevel ($v) ; must be in (%s)\n"
+        , ( join ', ', Blib -> _loglevels)
+          unless Blib -> _is_loglevel ( $v ) ;
+    }
+
+    { my $v = $self -> iim_umask ;
+      $err .= sprintf "config error : iim_umask not octal ($v) ;\n"
+        unless $v =~ /^[0-7]+$/ ;
+    }
+
+    { $err .= sprintf "error : perl module Proc::Daemon is too old ; "
+        . "install a recent version ; see the manual ;\n"
+        unless Proc::Daemon -> can ( 'Status' )
+           and Proc::Daemon -> can ( 'Init' ) ;
+    }
+
+    { my $p = $self -> prog_rsync ;
+      $err .= sprintf "config error : program rsync (%s) not found ;\n"
+        . "  -> use 'iim --prog_rsync /path/to/rsync'"
+        . " or configure 'prog_rsync ...'\n"
+        , $p unless -f $p ;
+    }
+
+    unless ( $req )
+      { my $lcl = $self -> local ;
+        my $tmp = $self -> temp  ;
+
+        for my $pth ( $lcl, $tmp )
+          { $err .= sprintf "config error : not a full path ($pth) ;\n"
+              unless $pth =~ m!^/! ;
+          }
+        unless ( -d $lcl )
+          { $err .= "can't find directory local ($lcl)\n" ; }
+       }
+    $req . $err ;
+  }
+
+sub show
+  { my $self = shift ;
+    my $sep  = shift || '' ;
+    my $res  = "config :\n" ;
+    for my $key ( sort keys %$self )
+      { next if $key =~ m/^_/ ;
+        next if $key eq 'parent' ;
+        my $val = $self -> { $key } ;
+        $val = '********' if $key eq 'passwd' ;
+        $res .= sprintf "$key = '%s'\n", ( defined $val ? $val : '<undef>' ) ;
+        if ( $val and ref $val eq 'ARRAY' and scalar @$val )
+          { $res .= sprintf "  %s\n", join "\n  ", @$val ; }
+        elsif ( ref $val eq 'HASH' and scalar keys %$val )
+          { for my $k ( sort keys %$val )
+              { $res .= sprintf "  %s = %s\n", $k, $val -> { $k } ; }
+          }
+      }
+    $res .= sprintf "included '%s'\n", $self -> includes ;
+    if ( $sep ) { chomp $res ; $res =~ s/\n/\n$sep/g ; }
+    RF::LOGx $res ;
+  }
+
+sub unbless
+  { my $self = shift ;
+    my $res  = {} ;
+    for my $key ( sort keys %$self )
+      { next if $key =~ m/^_/ ;
+        next if $key eq 'parent' ;
+        next if $key eq 'user' ;
+        next if $key eq 'passwd' ;
+        my $val = $self -> { $key } ;
+        if ( ref ( $val ) =~ /^(ARRAY|HASH)?$/ )
+          { $res -> { $key } = $val ; }
+      }
+    $res -> { included } = $self -> includes ;
+    $res ;
+  }
+
+##########################################################
+package Blib::Mods::Conf::Incl ;
+
+@Blib::Mods::Conf::Incl::ISA = qw(Blib) ;
+
+eval Blib -> mk_methods ( qw(file stat) ) ;
+
+sub mtime { my $self = shift ; $self -> stat -> [ $MTIME ] ; }
+sub dev   { my $self = shift ; $self -> stat -> [ $DEV   ] ; }
+sub ino   { my $self = shift ; $self -> stat -> [ $INO   ] ; }
+
+sub is_file
+  { my $self = shift ;
+    my $stat = shift ;
+    $self -> dev == $stat -> [ $DEV ] and
+    $self -> ino == $stat -> [ $INO ] ;
+  }
+
+sub init
+  { my $self = shift ;
+    my $file = shift ;
+    my $stat = shift ;
+    $self -> file ( $file ) ;
+    $self -> stat ( $stat ) ;
+    $self ;
+  }
+
+##########################################################
+package RF::Scores ;
+
+@RF::Scores::ISA = qw(Blib) ;
+
+use Time::HiRes qw(gettimeofday) ;
+our $_T = gettimeofday ;
+
+my @_counters =
+  ( [ qw(loops loops)          ]
+  , [ qw(ev    events)         ]
+  , [ qw(evn   -> new)         ]
+  , [ qw(evd   -> delete)      ]
+  , [ qw(evxd  -> discarded)   ] # event axed
+  , [ qw(rs    syncs)          ]
+  , [ qw(rsf   -> failed )     ]
+  , [ qw(frs   full syncs)     ]
+  , [ qw(frsf  -> failed)      ]
+  , [ qw(fetf  files fetched)  ]
+  , [ qw(fetr  -> recents)     ]
+  , [ qw(fetn  -> new files)   ]
+  , [ qw(fetl  links fetched)  ]
+  , [ qw(delf  files deleted)  ]
+  , [ qw(dell  links deleted)  ]
+  , [ qw(deld  dirs deleted)   ]
+  , [ qw(ddud  dud deletes)    ]
+  , [ qw(t_slp -> sleeping)    ]
+  , [ qw(t_con -> connected)   ]
+  , [ qw(t_frs -> full syncs)  ]
+  , [ qw(t_out -> sync errors) ]
+  , [ qw(s_rcvd sync received) ]
+  , [ qw(s_rcvdr -> recents)   ]
+  , [ qw(s_sent sync sent)     ]
+  , [ qw(s_fil files fetched)  ]
+  , [ qw(s_rct -> recents)     ]
+  , [ qw(s_new -> new files)   ]
+  , [ qw(s_del files deleted)  ]
+  ) ;
+
+my @counters = grep ! /^._/, map { $_ -> [ 0 ] ; } @_counters ;
+my @timers   = grep   /^t_/, map { $_ -> [ 0 ] ; } @_counters ;
+my @sizers   = grep   /^s_/, map { $_ -> [ 0 ] ; } @_counters ;
+my @bandwds  = grep   /^x_/, map { $_ -> [ 0 ] ; } @_counters ;
+
+my %name4cntr = () ;
+for my $cntr ( @_counters )
+  { my ( $key, @name ) = @$cntr ;
+    $name4cntr { $key } = ( join ' ', @name ) || $key ;
+  }
+sub name4cntr { my $key = shift ; $name4cntr { $key } || $key ; }
+
+eval Blib -> mk_methods
+  ( qw(parent tmpl f_tmpl t_tmpl)
+  , @counters, @timers, @sizers,  @bandwds
+  ) ;
+eval RF::Scores -> incr_methods ( @counters, @timers, @sizers, @bandwds ) ;
+
+my $_TMPL ;
+my $_TMPL_mtime = 0 ;
+
+sub find_tmpl
+  { my $self = shift ;
+    my $tmpl = $self -> parent -> conf -> scoreboard_template || '' ;
+    my $smpl = $self -> parent -> path ( 'temp', $SCB_SMPL ) ;
+    my @tmpl = $tmpl ? ( $tmpl ) : ( $smpl ) ;
+    my $file ;
+    for my $cand ( @tmpl ) { if ( -f $cand ) { $file = $cand ; last ; } }
+    unless ( $file )
+      { RF::LOGf "can't find scoreboard template in (%s)", join ',', @tmpl ; }
+    $file ;
+  }
+
+sub read_tmpl
+  { my $self = shift ;
+    my $file = shift ;
+    my $res = '' ;
+    if ( open TMPL, $file )
+      { $res = join '', <TMPL> ; close TMPL ; }
+    else
+      { RF::LOGf "can't open scoreboard template '%s' (%s)", $file, $! ; }
+    $res ;
+  }
+
+sub get_tmpl
+  { my $self = shift ;
+    my $file = $self -> find_tmpl ;
+    my $mtim = $file ? ( RF -> mtime ( $file ) || 0 ) : 0 ;
+    unless ( $file and $mtim )
+      { $self -> tmpl ( '' ) ;
+        $self -> f_tmpl ( '' ) ;
+        $self -> t_tmpl ( 0 ) ;
+      }
+    elsif ( $file ne $self -> f_tmpl or $mtim != $self -> t_tmpl )
+      { my $time = $self -> t_tmpl ;
+        RF::LOGf "read scoreboard template :\n  file : %s\n  last read : %s"
+          , $file
+          , ( $time ? scalar localtime $time : 'never' )
+          ;
+        $self -> f_tmpl ( $file ) ;
+        $self -> t_tmpl ( $mtim ) ;
+        $self -> tmpl ( $self -> read_tmpl ( $file ) ) ;
+      }
+    $self -> tmpl ;
+  }
+
+sub init
+  { my $self = shift ;
+    my %opts = ( @_ ) ;
+    $self -> parent ( $opts { parent } ) ;
+    $self -> tmpl ( '' ) ;
+    $self -> f_tmpl ( '' ) ;
+    $self -> t_tmpl ( 0 ) ;
+    for my $cntr ( @counters, @timers, @sizers, @bandwds )
+      { $self -> $cntr ( 0 ) ; }
+    $self ;
+  }
+
+sub _incr
+  { my $self = shift ;
+    my $attr = shift ;
+    my $incr = shift ;
+    $incr = 1 unless defined $incr ;
+    $self -> $attr ( $incr + $self -> $attr ) ;
+  }
+
+sub incr_method
+  { my $self = shift ;
+    my $attr = shift ;
+    my $meth = 'sub incr_%s { my $self = shift ; my $incr = shift ; '
+      . '$self -> _incr ( %s, $incr ) ; }' ;
+    sprintf $meth, $attr, "'$attr'" ;
+  }
+
+sub incr_methods
+  { my $self = shift ; join '', map { $self -> incr_method ( $_ ) ; } @_ ; }
+
+sub MB { sprintf "%.1f", $_ [ 0 ] / 1024 / 1024 ; }
+
+sub _persec
+  { my $tag  = shift ;
+    my $size = shift ;
+    my $time = shift ;
+    my $bps  = 8 * $size / $time ;
+    my $u ;
+    my $r ;
+    if ( $bps < 1024 )
+      { $u = 'b/s'  ; $r = sprintf '%.2f', $bps ; }
+    elsif ( $bps < 1024 * 1024 )
+      { $u = 'Kb/s' ; $r = sprintf '%.2f', $bps / 1024 ; }
+    else
+      { $u = 'Mb/s' ; $r = sprintf '%.2f', $bps / 1024 / 1024 ; }
+    "$tag [$u]", $r ;
+  }
+
+sub make_data
+  { my $self = shift ;
+    my $prnt = $self -> parent ;
+    my $conf = $prnt -> conf ;
+    my $mrt  = $conf -> max_run_time ;
+    my $exit =
+      ( $mrt ? $conf -> _text4secs ( $^T + $mrt - time ) : 'not scheduled' ) ;
+    my $nxit = ( $mrt ? 'next exit' : 'exit' ) ;
+    my $nfs =
+      ( $prnt -> next_sync
+      ?  $conf -> _text4secs ( $prnt -> next_sync - time )
+      : 'not scheduled'
+      ) ;
+    my $nrot = $prnt -> next_rotate ;
+    my $rot =
+      ( $nrot
+      ? ( ( $mrt and $nrot > $mrt )
+        ? 'on next re-start'
+        : $conf -> _text4secs ( $nrot - time )
+        )
+      : 'not scheduled'
+      ) ;
+    my $tag  = $prnt -> dtag ;
+    my $mode = $prnt -> mode . ( $tag ? " -> $tag" : '' ) ;
+    my $trun = ( gettimeofday - $_T ) || 1 ;
+    my $busy = $trun ;
+    my $prcs = 0 ;
+    my $date = sprintf "%s UTC", scalar gmtime ;
+
+    my $general =
+      [ [ 'date'            => $date ]
+      , [ 'host'            => ( $HOSTNAME || 'unknown' ) ]
+      , [ 'version'         => $prnt -> version ]
+      , [ 'pid &rarr; mode' => "$$ &rarr; $mode" ]
+      , [ 'remote'          => $conf -> remote ]
+      , [ 'status'          => $prnt -> status_html ]
+      , [ 'age local'       => $prnt -> age ]
+      , [ $nxit             => $exit ]
+      , [ 'next full sync'  => $nfs  ]
+      , [ 'next log rotate' => $rot  ]
+      ] ;
+
+    my $timers =
+      [ [ 'run time' => $conf -> _text4secs ( $trun ) ]
+      , ( map
+            { my $time = $self -> $_
+            ; my $_prc = 100 * $time / $trun
+            ; my $perc = sprintf "%.2f %%", $_prc
+            ; $busy -= $time
+            ; $prcs += $_prc
+            ; [ $_ => $conf -> _text4secs ( $self -> $_, 3 ) => $perc ]
+            } @timers
+        )
+      , [ '-> busy'
+        , $conf -> _text4secs ( $busy, 3 )
+        , sprintf "%.2f %%", 100 - $prcs
+        ]
+      ] ;
+
+    my $bndwids  =
+      [ [ _persec 'sync in'  , $self -> s_rcvd, $trun ]
+      , [ _persec 'sync out' , $self -> s_sent, $trun ]
+      , [ _persec 'files in' , $self -> s_fil,  $trun ]
+      ] ;
+
+    my $counters = [ map { [ $_ =>    $self -> $_ ] ; } @counters ] ;
+    my $sizers   = [ map { [ $_ => MB $self -> $_ ] ; } @sizers   ] ;
+
+    if ( wantarray )
+      { $general, $timers, $counters, $sizers, $bndwids ; }
+    else
+      { [ [ 'general'   , $general
+          , 'timers'    , $timers
+          ]
+        , [ 'counters'  , $counters ]
+        , [ 'data [MB]' , $sizers
+          , 'bandwidth' , $bndwids
+          ]
+        ] ;
+      }
+  }
+
+sub as_text
+  { my $self = shift ;
+    my $data = $self -> make_data ;
+    my $list = [] ;
+    my $W = 0 ;
+    for my $col ( @$data )
+      { while ( @$col )
+          { my $tag = name4cntr shift @$col ;
+            push @$list, [ $tag, '->' ] ;
+            my $tups = shift @$col ;
+            for my $tup ( @$tups )
+              { my $name = name4cntr shift @$tup ;
+                $W = length $name if $W < length $name ;
+                push @$list, [ $name, join ' - ', @$tup ] ;
+              }
+          }
+      }
+    join ''
+      , "--  scoreboard  ------------------------------\n"
+      , ( map { sprintf "%-${W}s : %s\n", @$_ ; } @$list )
+      , "----------------------------------------------\n"
+      ;
+  }
+
+sub mk_trs
+  { my $self = shift ;
+    my $titl = shift ;
+    my $itms = shift ;
+    my $mcls = shift ;
+    my @list = ( "<TH COLSPAN=$mcls class=title>$titl</TH>" ) ;
+    for my $itm ( @$itms )
+      { my $outs = 0 ;
+        my $left = @$itm ;
+        my $name = name4cntr shift @$itm ;
+        $name =~ s/->/&rarr;/g ;
+        push @list, join ''
+          , "<TH class=left>$name</TH>"
+          , ( map
+                { $left --
+                ; my $span = $mcls - $outs - $left
+                ; my $cspn = $span == 1 ? '' : "COLSPAN=$span "
+                ; my $attr = /^\d+(\.\d+)?(\s%)?$/ ? 'right' : 'left'
+                ; $outs += $span
+                ; s/->/&rarr;/g ;
+                ; "<TD ${cspn}class=$attr>$_</TD>"
+                } @$itm
+            ) ;
+      }
+    [ @list ] ;
+  }
+
+sub _as_html
+  { my $self = shift ;
+    my $mrws = shift ;
+    my @args = @_ ;
+    my $mcls = 0 ;
+    my @trs = () ;
+
+    for my $arg ( @args )
+      { if ( ref $arg )
+          { for my $itm ( @$arg ) { $mcls = @$itm if @$itm > $mcls ; } }
+      }
+
+    while ( @args )
+      { my $titl = shift @args ;
+        my $itms = shift @args ;
+        push @trs, @{ $self -> mk_trs ( $titl, $itms, $mcls ) } ;
+      }
+
+    if ( @trs < $mrws )
+      { my $span = $mrws - @trs ;
+        my $rspn = $span == 1 ? '' : "ROWSPAN=$span " ;
+        push @trs, "<TD CLASS=fill ${rspn}COLSPAN=$mcls>&nbsp;</TD>" ;
+      }
+
+    [ @trs ] ;
+  }
+
+
+sub glue_by_row
+  { my $self = shift ;
+    my $cols = shift ;
+    my $mrws = shift ;
+    my $lens = 0 ;
+    my @res = () ;
+    map { $lens += @$_ ; } @$cols ;
+    while ( $lens )
+      { my @row = () ;
+        for my $col ( @$cols )
+          { if ( @$col ) { push @row, shift @$col ; $lens -- ; } }
+        my $fill = @res == 0 ? "<th CLASS=fill ROWSPAN=$mrws></th>" : '' ;
+        push @res, sprintf "<tr>%s</tr>\n" , join $fill , @row ;
+      }
+    join '', @res ;
+  }
+
+sub mk_tab
+  { my $self = shift ;
+    my $data = shift ;
+    my $mrws = 0 ;
+    for my $descr ( @$data )
+      { my $cnt = 0 ;
+        map { $cnt += ref $_ ? @$_ : 1 ; } @$descr ;
+        $mrws = $cnt if $cnt > $mrws ;
+      }
+    sprintf "<table>\n%s</table>\n", $self -> glue_by_row
+      ( [ map { $self -> _as_html ( $mrws, @$_ ) ; } @$data ] , $mrws ) ;
+  }
+
+sub as_html
+  { my $self = shift ;
+    my $prnt = $self -> parent ;
+    my $conf = $prnt -> conf ;
+    my $res  = 'Error ; see log' ;
+
+    if ( my $TMPL = $self -> get_tmpl )
+      { my $data = $self -> make_data ;
+        my $tab  = $self -> mk_tab ( $data ) ;
+        my $fmt = "<DIV CLASS=tab>%s</DIV>\n" ;
+        my $ttxt = sprintf $fmt, $tab ;
+        my $sml  = $conf -> sleep_main_loop ;
+        my $refr = $sml + 15 ;
+        my %subs =
+          ( '%VERSION%' => $prnt -> version
+          , '%REFRESH%' => $refr
+          , '%SML%'     => $sml
+          , '%DATE%'    => scalar ( localtime )
+          , '%NEXT%'    => scalar ( localtime time + $refr )
+          , '%TABLES%'  => $ttxt
+          , '%SITE%'    => $IIM_SITE
+          , '%LOGO%'    =>
+              ( -f $prnt -> path ( 'temp', $IIM_LOGO )
+              ? $IIM_LOGO
+              : $IIM_LOGO_URL
+              )
+          ) ;
+        for my $pat ( keys %subs )
+          { my $sub = $subs { $pat } ; $TMPL =~ s/$pat/$sub/g ; }
+        $res = $TMPL ;
+      }
+    $res ;
+  }
+
+sub _max { my $m = shift ; ( $m < $_ and $m = $_ ) for @_ ; $m ; }
+
+sub as_php
+  { my $self = shift ;
+    my ( $gen, $tim, $cnt, $siz, $bws ) = $self -> make_data ;
+    my $tab  = $self -> mk_tab
+      ( [ [ 'general', $gen
+          , 'timers' , $tim
+          ]
+        , [ 'counters'  , $cnt ]
+        , [ 'data [MB]' , $siz
+          , 'bandwidth' , $bws
+          ]
+        ]
+      ) ;
+    my $fmt = "<DIV CLASS=tab>%s</DIV>\n" ;
+    my $ttxt = sprintf $fmt, $tab ;
+    sprintf ''
+      . "\$version      = '%s' ;\n"
+      . "\$iim_scb_time = '%d' ;\n"
+      . "\$iim_sleep_main_loop = %s ;\n"
+      . "\$tab = <<<TAB\n%sTAB;\n"
+      , $self -> parent -> version
+      , time
+      , $self -> parent -> conf -> sleep_main_loop
+      , $ttxt
+      ;
+  }
+
+sub as_json
+  { my $self = shift ;
+    my ( $gen, $tim, $cnt, $siz, $bws ) = $self -> make_data ;
+    my $opts =
+      [ [ 'sleep_main_loop' , $self -> parent -> conf -> sleep_main_loop ] ] ;
+    my $meta =
+      [ [ 'iim_scb_time', time ] ] ;
+    for my $itm ( @$gen, @$tim, @$cnt, @$siz )
+      { unshift @$itm, $itm -> [ 0 ] ;
+        $itm -> [ 1 ] = name4cntr $itm -> [ 1 ] ;
+      }
+    my $res  =
+      { general   => $gen
+      , timers    => $tim
+      , counters  => $cnt
+      , sizes     => $siz
+      , bandwidth => $bws
+      , meta      => $meta
+      , conf      => $self -> parent -> conf -> unbless
+      , conf_def  => \%CNF_defaults
+      } ;
+    my $json = $LCL_JSON -> new -> utf8 ( 1 ) -> pretty -> encode ( $res ) ;
+    $json .= "\n" unless $json =~ /\n$/ ;
+    $json ;
+  }
+
+sub put_scoreboard
+  { my $self = shift ;
+    my $file = shift ;
+    my $prnt = $self -> parent ;
+    my $text ;
+
+    if ( $file =~ /.html$/ )
+      { $text = $self -> as_html ; }
+    elsif ( $file =~ /.php$/ )
+      { $text = $self -> as_php  ; }
+    elsif ( $file =~ /.json$/ )
+      { $text = $self -> as_json ; }
+    else
+      { $text = $self -> as_text ; }
+
+    if ( $file and ! open FIL, ">$file" )
+      { RF::LOGx "can't write scoreboard $file" ; }
+    elsif ( $file )
+      { RF::LOGx "write scoreboard $file" if $prnt -> debug ;
+        print FIL $text ;
+        close FIL ;
+      }
+    else
+      { print $text ; }
+  }
+
+sub put_scoreboards
+  { my $self = shift ;
+    my $prnt = $self -> parent ;
+    my $scbf = $prnt -> conf -> scoreboard_file ;
+    my @fils = ( '' ) ;
+
+    if ( $scbf )
+      { @fils = split ' ', $scbf ; }
+    else
+      { @fils = ( $prnt -> path ( 'temp', $SCB_FILE ) ) ; }
+
+    for my $file ( @fils )
+      { $self -> put_scoreboard ( $file ) ; }
+  }
+
+##########################################################
+package RF::Sync ;
+
+@RF::Sync::ISA = qw(Blib) ;
+
+eval Blib -> mk_methods
+  ( qw(parent conn error cmd timer numf sent rcvd xfrd) ) ;
+
+use Time::HiRes qw(gettimeofday) ;
+
+sub reset
+  { my $self = shift ;
+    $self -> error ( undef ) ;
+    $self -> numf ( undef ) ;
+    $self -> sent ( undef ) ;
+    $self -> rcvd ( undef ) ;
+    $self -> xfrd ( undef ) ;
+    $self -> cmd ( '' ) ;
+    $self ;
+  }
+
+sub init
+  { my $self = shift ;
+    my %opts = ( @_ ) ;
+    $self -> parent ( $opts { parent } ) ;
+    $self -> reset ;
+  }
+
+sub _rep { map { defined $_ ? $_ : '<u>' } @_ ; }
+
+sub request
+  { my $self = shift ;
+    my $fils = shift ;
+    my $kind = shift || '' ;
+    my $prnt = $self -> parent ;
+    my $conf = $prnt -> conf ;
+    $self -> reset ;
+
+    my $user = $conf -> user ? $conf -> user . '@' : '' ;
+    my @cmd  = ( $conf -> prog_rsync ) ;
+    push @cmd, '-v' if $prnt -> debug ;
+    push @cmd, @RSYNC_LIST ;
+    push @cmd, '--timeout' => $conf -> timeout ;
+    push @cmd, '--contimeout' => $conf -> timeout ;
+    push @cmd, '--temp-dir' => $conf -> rtmp ;
+    push @cmd, '--files-from' => $prnt -> req_file ;
+    push @cmd, $user . $conf -> remote ;
+    push @cmd, ( $kind eq 'r' ? $conf -> temp : $conf -> local ) ;
+    my $cmd = $self -> cmd ( join ' ', @cmd ) ;
+
+    if ( $prnt -> debug )
+      { RF::LOGf "%s\n[ %s\n] %d\n"
+          , $cmd
+          , ( join "\n, ", @$fils )
+          , scalar @$fils ;
+      }
+    $prnt -> put_req_file ( $fils ) ;
+
+    my $pipe = new IO::Pipe ;
+    my $time = gettimeofday ;
+    my $conn = $self -> conn ( $pipe -> reader ( @cmd ) ) ;
+
+    if ( $conn )
+      { while ( defined ( my $line = $conn -> getline () ) )
+          { my $x ;
+            print $line if $prnt -> debug ;
+            if ( $line =~ /total bytes sent:\s+([\d,]+)/i )
+              { $x = $1 ; $x =~ s/,//g ; $self -> sent ( $x ) ; }
+            elsif ( $line =~ /total bytes received:\s+([\d,]+)/i )
+              { $x = $1 ; $x =~ s/,//g ; $self -> rcvd ( $x ) ; }
+            elsif ( $line =~ /number of files:\s+([\d,]+)/i )
+              { $x = $1 ; $x =~ s/,//g ; $self -> numf ( $x ) ; }
+            elsif ( $line =~ /number of.*files transferred:\s+([\d,]+)/i )
+              { $x = $1 ; $x =~ s/,//g ; $self -> xfrd ( $x ) ; }
+          }
+        $prnt -> scores -> incr_s_sent ( $self -> sent || 0 ) ;
+        $prnt -> scores -> incr_s_rcvd ( $self -> rcvd || 0 ) ;
+        if ( $kind eq 'r' )
+          { $prnt -> scores -> incr_s_rcvdr ( $self -> rcvd || 0 ) ; }
+        $self -> error ( $self -> close ) ;
+        $self -> timer ( gettimeofday - $time ) ;
+        RF::LOGf "sent %s, rcvd %s, xfrd %s, kind '%s' ok '%s'"
+          , _rep ( $self -> sent, $self -> rcvd, $self -> xfrd )
+          , $kind, $self -> is_ok
+          if $prnt -> debug ;
+      }
+    else
+      { $self -> error ( -1 ) ; }
+    $self -> error ;
+  }
+
+sub close { my $self = shift ; $self -> conn -> close ; $? ; }
+
+sub full
+  { my $self = shift ;
+    my $prnt = $self -> parent ;
+    my $conf = $prnt -> conf ;
+    $self -> reset ;
+
+    my $user = $conf -> user ? $conf -> user . '@' : '' ;
+    my @cmd =
+      ( $conf -> prog_rsync
+      , @RSYNC_FULL
+      , '--timeout' => $conf -> timeout ()
+      , '--contimeout' => $conf -> timeout ()
+      , '--temp-dir' => $conf -> rtmp ()
+      , $user . $conf -> remote
+      , $conf -> local
+      ) ;
+    my $cmd = $self -> cmd ( join ' ', @cmd ) ;
+
+    if ( $prnt -> debug ) { RF::LOGf "%s\n", $cmd ; }
+
+    my $time = gettimeofday ;
+    system @cmd ;
+    $self -> error ( $? ) ;
+    $self -> timer ( gettimeofday - $time ) ;
+    $self -> error ;
+  }
+
+sub is_partial
+  { my $self = shift ;
+    my $err  = $self -> error ;
+    my $sig  = ( $err & 127 ) ;
+    my $xit  = ( $err >> 8  ) ;
+    defined $err and $sig == 0 and ( $xit == $E_PRT or $xit = $E_MIS ) ;
+  }
+
+sub is_partial_no_files
+  { my $self = shift ;
+    my $numf = $self -> numf ;
+    $self -> is_partial and defined $numf and $numf == 0 ;
+  }
+
+sub is_ok
+  { my $self = shift ;
+    my $err  = $self -> error ;
+    defined $err and $err == 0 ;
+  }
+
+sub report
+  { my $self = shift ;
+    sprintf "files xferred %s, bytes sent %s received %s"
+      , _rep $self -> xfrd, $self -> sent, $self -> rcvd ;
+  }
+
+1 ;
+package Logo ;
+use Exporter ;
+use Carp ;
+our @ISA = qw(Exporter) ;
+
+sub save_as
+  { my $self = shift ;
+    my $dst = shift ;
+    my $hex = $self -> logo ;
+    $hex =~ s/[^0-9a-fA-F]//g ;
+    open DST, '>', $dst or croak "can't write $dst ($!)\n" ;
+    binmode DST ;
+    print DST pack 'H*', $hex ;
+    close DST ;
+    chmod 0644, $dst ;
+  }
+
+sub logo
+  { <<'HEX' ;
+89504e470d0a1a0a0000000d49484452000000c00000004010060000001cfca49c000000
+0467414d410000b18f0bfc6105000000017352474200aece1ce9000000206348524d0000
+7a26000080840000fa00000080e8000075300000ea6000003a98000017709cba513c0000
+0006624b474400ff00ff00ffa0bda793000000097048597300000b1300000b1301009a9c
+180000000976704167000000c00000004000f443ecb800001e1c4944415478daed9d7b7c
+cee5ffc75ff7bd03336396c9e93b26ca8685726a0915a1039529fcf2734c073a980a8512
+49eb80fc58397c43c5f886a26244e6342251ccccb43187666b7660877bbb9fbf3f7477f8
+3e0adbbddbb0ebf587e73fdbe77a5defcff5f6bef6f95c9febb280249dffd7c8c8c8c8a8
+fcc85ad6068c8c8c8c8cca46a600181919199553990260646464544e650a809191915139
+95290046464646e554a600181919199553b997b50123a362aa9aaa49925ed48b92243ff9
+499250f1163317a94892d45ccd25c93ad93a5992b45ffb25c97ec67e469294a94ce3df05
+fe2f26bbec926409b7844b92e515cb2b92647fc2fe8424e93a5d57aaed95b61c711aadd1
+92245ff9ba244e165924c9b2ceb24e922c932c9324c99e693f7fdfdba8cd3fffb2290046
+57bafaa88f24d53b55ef942475c9ec922949b5fbd6ee2b49daa66d92a41ce55cf03a8ec4
+f3918f2459da58ce27c6a7fa54927e7eefe7f72429da3bda5b924ed63d59d7f82f45ff17
+93a37f9ef294248b87c543926c836d83256967e1ce4249dadc6a732b49ca535ea974afb4
+e41ee11e21490d7d1bfa4a52075b079b24d5ac51b38624c9265ba9c4c951f8876aa82459
+93ac4992746ed6b95992b4f5ffb6fe9f24eda8bca3f29f9bfd07d7651d3623a3bf97ef18
+df3192745fb7fbba49d2139b9ed82449ad36b5da24499e8b3d174b92621423e99f67566e
+7293f4c78cb5bdda5b2c524644460448ab1e5af5902445df197da724a56d49db62fc97a2
+ff8be9b799be1aaaa12469a6665a2c52d699ac33202ddebb78af242ddbb56c9724e567e7
+679746ff9c5505df0abe9214fc73f0cf92d46b7daff592f4c0070f7c204937be7ae3ab92
+e419e51925493aa2237fe96f71e313a42049d27b7acf62918a06140d00e9a7ef7efa4e92
+e67c38e743494a989e305d926c5e36af4bb8bae34b6043c3b265851a156a00746ad7a91d
+c052afa55e00597767ddcd6f3aff9325635e6e5e2ec08627373c0910f65cd873003eab7c
+5619ffaef77fa94c3e9c7c18203c2d3c0dc0ef80df812b617c561a59692440fbb0f66100
+3316cf580c70b8c7e11e00854585452e8d531c7100298fa43c02101110110010d425a80b
+8035d41a5afc7e9902605846b476b7760708f609f60178fb9db7df0138aee3e787fd8ffc
+e84c4215bd5bf42ec0fed0fda10023bf18f90540eda8da51006aa226c6bfebfc5f723f47
+158d02880d8f0d07e831a8c72000cf4ccfcc32199ffef207a85aad6a35806e53bb4d0598
+7f7afe6980940f523e00b0cfb5cfbd1cf1c99c94390960c9d42553013a6cebb00dc073ab
+e756e7fb6b0a80e1e5625dd505a8f954cda7009e69fd4c6b807d15f6550028cc28cc702a
+a18e710ce064c8c9108069b9d372019a756ad609c09a6a4d35fe5de8bf983c37f7dc5c80
+c5eb17af07685eb7795d004b0b4b8bcb3a2eefd37d00fe8ffb3f0ed0eb78afe300cb1e5d
+f628c0e9c4d389003ccff397233ef9bfe4ff02b0b9f9e6e6007ded7ded0055b757dd5efa
+fd3705c0d0c5f44ef44e0478b0d1838d00a2bb457703c83d967bac34122a3b363b1660b9
+d7722f80bb4fdc7d02a0c29e0a7b8c7fd7fb2f2e7fb9f1971b0126ee9ab80ba0e6819a97
+f5118fe553cba70075e7d49d033020794032c09ac835910099cd339b03b08f7d97233ef6
+47ed8f02c4778fef0e303a6a7414c0bfb6ffebfc7ff8b7e936d7c5c31400c352a67ba67b
+26409b766dda01cc1f3e7f3840fa8be92f96464215e414e400c4de157b17c080b401e79f
+1587f88518ffaef75f6cb6a215c08f6b7f5c0bf0d89d8fdd0950a95ba56e97633cbabdef
+f63e40c39a0d6b023cf3ec33cf026c19b66518c0d95e677b5dd6b89ce31c406aabd45600
+b343668700b458d0620180db376edf5c8eb8980260583a3ca883000dda37680ff06abb57
+db01249e4e3c0d40631a3b9560162c0089d513ab038cb78fb70304ce089c01a00dda60fc
+bbd07f0959f050c143005f0efa721040e847a11f41293ccaba083d867b0c07681ade341c
+605ced71b501beefff7d7f807cdf7cdfb288c7d92fcf7e09b06aceaa3900dddfeafe1680
+d72caf59ae8c872900862ea1dff77edf030cba6ed075003b5aec6801600bb605974682a5
+c5a5c501cc6b30af0140eb16ad5b00b8af715f63fcbbde7f49997128e310c0f46dd3b701
+04f608ec01a04aaae48a7158714ec53900ad435b870244dc10710340dce3718f03d8a6db
+a697453c6c29b614805d7b76ed01783ce9f12480ea87ab1f0690bbdc5d110f53000c5dc2
+8a3e157d003adb3adb00560c58310020273027b034122cf79ddc7700d63658db00a0c7f7
+3dbe07f07edffb7de3dff5fe9d65629bc436004f1f7dfa2840d5a15587ba621c56ee52b9
+0bc09d37dd79134064d7c8ae003fffe7e7ff00147d5af46999c4633ef301929292920026
+bb4f760768744fa37b002c2f5a5e74453c4c01307409dd02dc020042ba8574039871c38c
+1b004ec69c8c01e004279c49b4c21d853b00f656d95b056078fcf07880eb775cbf0340b5
+54cbf8779d7f6759f874e1d300316d63da02747da5eb2b001ecf783c532ae3b0adda0254
+9b546d12c0031f3ef021c0c7f53eae077072e3c98d000410509671c8b82be32e8085490b
+930042dd43dd013cb67a94c2324d53000c2f1743140250a77b9dee00a33c4679001ce874
+a01340514c518c5389f6dbbaf29426294d0022bc22bc00829a073507b0d6b3d633fe5de8
+bf9498b33c6739c0474f7ff43440f057c15f0168bcc63bd5ff955a0950b369cda6007dbd
+fb7a03ac5cb3720dc0afe37e1d07c04a5696651cf28ee61d05d8d076435b80b0e7c39e07
+f099e233c5a9fe9b02605816f429f02900e8fd70ef870136deb0f106807ccf7ccfd248b4
+cce8cc68802587961c02e818d83110c0738fe71ee3df85fe2b5211a028ba281a803ef471
+e67ac7bb1cef02f072dd97eb02f8b7f16fe34cbfad0f5a1f04a877b2de4980c7473c3e02
+e09bf1df8c07c8ae985d11801c722ee8bb0215008ad616ad2d8d7efe378be617cd07d83f
+65ff148070df705f80da876b9f7f961fa4a0d21807a600185e167a1cf33806101a1d1a0d
+b0e8c8a2230019511951a59138f9f9f9f9009b076e1e08d0ef8e7e770054b557b51bff2e
+f4df9ce600199919990027bb9d3cbfdeff8bdc2f0098c9cce25cdffe92fd2580dd09bb13
+00c20e861d04a8d8af62bf92f4db7da8fb50809b626e8a0118e536ca0d20b628b608e05c
+dab9b44bf1670fb2070164bc9bf12ec0c925279700e47e9bfb2d00eff3be53714c2619e0
+e480930300a6d79c5e13a0d9dc667301ac39d69cd2180757064d01b8e66979c7f20e40a3
+844609009313262700240f481e00c0677ce64cc2d87bd97b01c4cf8a9f0530a6d3984e00
+011e011e006a23a7668ac6ff8599d53cab39c096c15b06036c72dbe406909e919e01c0bd
+dc5b9cebe76dcfdb0eb07cd9f26500ada6b69a0abfaf66bde47e7b7eebf92d40f3e1cd87
+034ccc9d980bb06feabea900057714dc7129be8a828a82008e251d4b02d8ba70eb4280dd
+bb76ef0238d3fb4c6f000632d0993866ff94fd13c0f2d9cb670374eed3b90f408523158e
+3873ffaf6c9a0270edd14b5e00feddfdbb030c4b1d960ab0fbb9ddcf01145629ace24ca2
+fcfe21cbada9b702ccee35bb17408b132d4e00b8c5bbc51bffaef35fd0bfa03f40ec8db1
+3702bc7dfbdbb703ac7a68d54300d9f5b3eb97e4fa693bd376024c4d9c9a085037bf6e7e
+71fa5de9d64ab702dc36f7b6b900d37da7fb021c3a7be82c40e184c20997e2cbb6c1b601
+e0d0bf0ffd1b60b1c7620f808f6b7e5c13e060fb83ed010a6c0536a7e2e8f820af476c0f
+80810d073604f01be137c2a9fb7f55d114806b865efbbdf603dcdbefde7e00ab23564700
+9ce5ac234f4af61fe66f3c9b70360160d5b655db00babfd9fd4d00af455e8b8c7f17faaf
+4c6580c3d71fbe1ee0f571af8f03782afca970804db64d3600db6cdbec62b5f3db5f1e07
+1f38f800c0902943a600545e5979e505fbfbdb66693eb93eb9005de2bbc403cc5b386f21
+c0d1f547d703d8bbd8bb5c8a9f82e605cd01f64edc3b11e0ed9d6fef0418b77adc6a8075
+add7b506c88ec976ee257835aa0124de9f783fc0844a132a0104ce0a3cff21d64eed2c8d
+717075d11480ab966e396e39002d1f6bf918c0ecd4d9a900a911a91100e492eb4cc2d872
+6c3900bb4eef3a0d30ace5b09600d5cf563f0b2037b919ffaef39ff65dda770073a2e644
+01747ebef3f300cfbef9ec9b00090109e7973f6e656b71dab1dd69bb1360dd9a756b003a
+edebb40fc0dddfddff6ffbfb901e02b86eeb755b011e8e793806206a50d42080d4f1a9e3
+0198c6b44bf191fb72eecb00b19d633b03bc94ff523e40bf57fbbd0a30a7ff9cfe00a7c2
+4e8501b08d6d4ec531232d03605edf797d015a8f6c3d12c03dda3dda99fb7f6dd01480ab
+87edd51e20e0a980a700c61c1c7310203e253e05c03ec83ec8994461010b0092fd92fd00
+26779edc19a0d1d84663012ce19670e3df75fe7397e62e0558f3cb9a5f001ee001009a0e
+6d3a14e0bdf9efcd07c8b839e3e692b4935539ab32406472643240a3d71bbd0ea0eb75fd
+9ffb696966690650a7719dc600fffbf9ff7e0ef095e7579e006762ce9c9f89ffc44f17f4
+914f3e40f699ec3300dfb4faa615c0b0b9c3e6027408e9100230366b6c16405c4c5c0c40
+516151a15371fc34f75380b57dd6f601e859a7671d00ef79def39cbaffd7244d01b8e2e9
+1be81b08d06f4fbf3d005b3cb6780014d42fa8ef4ca238983125630ac0a2668b9a0184b6
+0e6d0de011eb116bfcbbce7f61526112c0de117b47000cf71fee0f506b66ad9900edd2db
+a503ac0e5b1d0650e05de05d92f69243924300c2ef09bf07a0daf86a7f59af6fcdb66603
+dc50e7863a004fdb9fb603c4348b6906909399937949ed6e6213c0af8b7e5d04f0f9c4cf
+2702f40deb1b06d0b85be36e00fd26f59b0410d33ca63940fec1fc83a512c7e17b87038c
+a83ea23ac0f547af3f0aa09aaa591ae3e0daa42900571c3d533d53013a46748c00886a13
+d50620f348e6116712c5c1bcd379a701366cdbb00d20ec5cd839009f753eeb8c7f17faff
+811f00529e4a790a20e293884f006eb2dd6403a814592912a06f56df2c801f9bfcd80480
+1bb8a138ed3ad6c3c7368f6d0e70bffd7e3b80c74c8f9900ee0bdc17003419dd6434c098
+7f8ff937c0eec0dd810079a3f3465f527b83180470f2ecc9b3009f4efc7422c0fdebee5f
+0770bded7a1b40877e1dfa012c5eb0780140e692cc25a512c727539e0488f82ae22b80a0
+3783de04b086584b6557d5f2415300ca9cd6f6d6f60041df067d0b10b12d621b40cac494
+89c0c5ffd4be088b96142d01d8bf71ff4680f0aee15d016a67d5ce0250533535fe5de73f
+735fe63e80a8e0a860800ed91db2013c16792c02a81155230ae0b5975e7b09e097c05f4a
+b4b7cfb9d473a9009f4efa741240b369cda60154bca5e22d00b71cbbe518c09bfddfec0f
+70e0b503afc11fef042e7a1fbe2dfa1620e9aba4af003e1cfae150804e3776ba11c06783
+cf06809b4edf741ae0ad496f4d0248e99fd21f80031c289538368e6a0cd0b17dc7f6009e
+3f7bfeecccfd2fdfb4fc5e098c2e97eaa88e24d5f4a8e9214961af87bd2e4943fc87f84b
+5293a0264192e416e01660b194e0fac7751ca453334fcd94a4a5fe4bfd25696edbb96d25
+e94087031d24a9a8b0a8d0f82f7dff36779b3b483b3edef1b124459e8d3c2b49abdd56bb
+4952e6e1ccc39214323864b0248d4e1a9d24493dad3dad92e4d5c1ab4371dafda5da2fd5
+409a7d70f64149fae48d4fde90a45a5eb5bc24a9cfc23e0b25a9eb235d1f91a47a31f562
+24c9badbbafb42ed141e2a3c04d291db8fdc2e49ab9e5df5ac242d6db2b48924ed9db177
+862455e95ba5af243de2f3888f240d2d185a20494d3a35e924496e75ddea964a1ccf459e
+93a42f477f395a92ce9c3e73baf85735fa2f9575052a3ff45ee3bd06a0e7809e0300d6ce
+5b3b0f207753ee266766460e66176417002cdfb37c0f40e7d73bbf0e50e1970abf18ffae
+f36f1f621f0210bf3b7e37c0985163460104d409a8f3e7f63d033d03011e68f2401380ed
+0bb72f04281a5934b238ed17d98bec007bbfdffb3dc0881123460084a587a5032c18b560
+14c0f143c70f01d8e3ec719772fdfcd1f9a3017e78f2872701c6b71adf0aa0d9afcd7e05
+707fc1fd0500af4fbc3e01e811d9231260edccb533017263729d5aa6f98f710c08080050
+a84a70e8b9e185690a80cbe81ee71e07d03aa6750cc0bc84790900e9f5d3eb3b93280eda
+7c6dbe00b1d1b1d10003270e9c08e037d96fb2f1ef42ff79e401a4be9afa2ac0ec8db337
+02b46cd4b211805b9c5bdc9f7d541b5c6d30c0c8c1230703246d4d2ad6b24d070b3a1674
+04f82eeebb3880992b66ae005819b7320ee074dae9f35b29ac60c5a55cff5cab73ad00b6
+666dcd0278aedd73ed001a7dd9e84b00eb29eb2900b79fdd7e0668dda87523807907e71d
+04480f4c776e1bea8bc531c12da134c681a129009787dfe93b80c0e4c06480092f4f7819
+20715ae23400ea50c7a984a94d6d80c4b9897301262c9cb01020302930e9cfed1bffaef1
+7ff6ecd9b300ab7badee0570afe55e0b80d7375e7f3dc2ef3a5d07d030a36106c0eca8d9
+5100998999892569dfbedfbe1f207d42fa0480845109a3003217642e002ebe95c4294e01
+6405670503acddba762bc0e0ed83b703fc6be6bf6602583a5b3a03a8955a01048e0d1c0b
+3061ec84b1651247435300ae06fa8df61b0d3070dcc071f0c78cd631c32d69a23898de2c
+bd19fc31836dbda9f52600f703eea57298b6f1fff72cac54580960f723bb1f0118366fd8
+3c00ff16fe2d00e429cf3ffb70ccfc3b3ed1f10980e845d18b006c81b692cd941d9f1037
+a21180bda7bd27001bd870c1eb7dc22700694fa53d05f0d9fccfe6033c72ec916300fec9
+fec9007a524ffe258eddfcba010c7c65e02b00b1eb62d795451c0d4d01b8a2e97826dd79
+52e74900cb172f5f0c909d9e9dee4ca238e8d8d570edd2b54b017a4ee93905c0fb6befaf
+8d7f17faffedd149f26dc9b7014c8e991c03d06865a3950096d72caffd9d1fef0cef0c80
+41e183c201e206c40d006006334a239e17a37dbb7d3bc0f1878f3f0cb060c5821500ddbf
+eafe1540d5ad55cf1f4c72ab6efd4b1c4f5438017fbc6b29eb381a9605cd2aa08bcacddd
+cd5d928237056f92a421b1436225a9f7e9dea725a9e6f09ac325497554a724ab1d8a8e16
+1d05697fdcfe38499a7b7aee69495a366ed938493a653b6593241dd771e3bff4fd9f997f
+663e48ab6bacae214991bf46fe2a493befd8798724d9026d817ff77b75b2ea6449d2f0d4
+e1a99234247f48be24550fae1e5ca2d54f97a8f3db214b495f277d2d496b22d644485254
+c5a88a92b43b7877b0249d1d7276c8d51047a332555957a02b90bfad2b77ac3377ac3b77
+ac4377ac4b2ff10c691ffb0052be4ef91a20a220a200206843d006f8635dbaf1ef1afff9
+15f22b006c6cb8b12140efa6bd9b02f824f9245dc89765936513c02d19b76400fc67fe7f
+e603e4b5cf6bef543c2f425b2d5b2d80fddbf66f039812312502e096b45bd2002a5a2a5a
+aea6381a5e493405e077faacf7590f10b6276c0fc086b51bd6c21f5f9e9634511ccc4ccd
+4c0588ea1fd51fa0e39c8e73003c6d9e36e3df75fe8b96162d05d87f66ff1980f0b7c3df
+06a8d3a14e07e0f7a318ffc95785a80a51000f473f1c0db0ebe15d0f03d8efb45fd20754
+c5655ea7bc4e00bbe6ee9a0b307ad5e85500c11b8337027854f0a87035c6d1f04a64392e
+008ebd621c7bc738f692c9189b31d6994471b0a05e413d802d7e5bfc00fad9fad9007c9b
+f93633fe5de8ffb7c3d24f6e39b905607afef47c8010f7107700374fb74b7ae958dd52dd
+02307acce8310029be29bea511d7ff66ce5b396f016c7a61d30b004f5b9eb6003478bbc1
+db00d6346bdad51c47c32b99e5a80038768374ec0ee9d82dd2b17ba46337c992268c3ddc
+1e0e107f36fe2cc098b8317100012302ce1f30d1455d8c7fd7f9cff1cff10758516d4535
+80ce199d33002a56ad58f5927cdea37b001aaf6cbc12605eecbc5880ecacec2c677cfdce
+ed6c0738d3f44c53802fbdbff406e8bfbeff7a80dab36acf02b054b55cd0ef151f47c3ab
+88d77201f86dbf77c7feef8efde01dfbc33bf68b2f69a2fc7eb2d4cad49500914d229b00
+b49cd6721a805b965b96f1ef3affb6005b00c00ecf1d9e0083ac83ac007e9bfd3617c7a7
+7b817b0140e7a4ce49001b776edc0950e85be8eb547c5fe00580d41aa93500966c5bb20d
+e0a1b487d200ae1b73dd1800dda7fbae85381a5e8dbc060b80d72caf5900dda7769f0a7f
+9c00e53811aaa489e2a06379b6e3c4a77b9fb8f70900af835e078d7f17faaf4b5d80c4d5
+89ab015eb5bc7afe5149c3060d01b45ffb8be3b34ab52ad5009e58f0c4028084fb13ee07
+20934bdbfef8bf68bfdd7e3bc0d1978fbe0c30cf7b9e37409757babc02e073c4e7fcd9b2
+7ef2bb96e2687835f31a28006e87dc0e01b4886f110f30bbe9eca600a9ad525b01bfcf74
+4b9a3085950b2b03ec9ebd7b36c0b0dc61b900feddfcbb01bf9f016bfcbbc67f7ae7f4ce
+00f36f9b7f1b40ebbcd67900eec9eec925f15beff97acf03bc5bf7ddba00bf8efb755c49
+fc157629ec027028fc5038c0b4f6d3da03dcd6e3b61e00957c2af95ccb7134bc16783516
+80b66a0bf0afbc7fe5018c693fa63d40fcacf85900f6307b983389e2f8b43e7940f20080
+c9099313001a9d6a740ac032dd32ddf8779dffdc5db9bb00d6feb0f607809e9ff7fc1cc0
+fb88f79192f8b546582300da66b6cd04f8e2b52f5e03c85f96bfac383e0b5a16b404d8e7
+b9cf13606287891d006efee9e69f003cdff57cf75a8ea3e1b5c8aba80054cdaa9a05d0af
+66bf9a009b43378702e4a7e5a73993280e667c95f115c0a2238b8e008446874603781cf3
+3866fcbbce7f61566116c0de037b0f008cf87ec4f700359bd46c02a0daaa5d12bf956eae
+7433c0a3f647ed003f78ffe00d607fc3fe0600099c7f94d28d6e00f4a007009de80470ae
+d6b95a00b15363a702848f0a1f0570d31d37dd01e07e8ffb3de5218e86d732afe002e0b9
+d973334087f40ee9004b562c590190b92273853389e260be67be27c0c6e61b9b03f41edb
+7b2c804f9e4f9ef1ef42ff7bd90b90b22a6515c0db216f8700049d0b3a0760ed6aedea94
+fff11a0f50ffe6fa37030c8b1c1609f05ab5d7aa014c489a900430e183091f004c983361
+0ec0840d1336008c6f32be09c063831f1b0c506f57bd5d00d6d6d6d6e52a8e86e5805750
+01b0d6b3d603086a11d40220c223c2032025202500801ff9d19984298a298a0138d0e940
+2780511ea33c00ea74afd31d70fa4316e3ffc2ccaa97550f20eac7a81f013a26744c00f0
+ccf7cc2fd5f174b36e06b0d6b0d600b0c45be201b4588b01345bb30114a9c8bff0437d08
+a067f52c802aaa62b98ea36139605916007ff9035cbffefaf500c3e387c703ecadb2b70a
+40e18ec21dce24caef1fb2ec39b90760c64d336e0208e916d20dc02dc02dc0f8779dff82
+06050d00b6046f0906f89fd0ff0905f01dec3bb8ec07fed5338ecb4d1c0dcb4701f09ee2
+3d05a0c7373dbe0158635b6303c87d37f75d6712c5c19cfa39f50156bcb1e20d802e3777
+b919a062ad8ab58c7fd7f9b73f677f0ee050ab43ad00c67618db0120607ac0f997ce77eb
+eeb21ff057fe382e6f7134bcc60b80fb1af73500ad5bb66e0930d736d70690b6336da733
+89e2a02dd8160cb0a3c58e160083ae1b741d805f825fa99c2864fcff030b280048dd99ba
+1320f2c1c807015a7ed4f2230077abbbb5ec07f855308ecb591c0daf24baa200acd77af8
+e344a1f171e3e300126b24d600c082c5a984694c6380c4d389a7015e6df76a3b8006ed1b
+9cdf85f2a09cfba0c9f8bf20cfd53d571760f577abbf03b877c6bd3300bc52bc52ca7e40
+5f3de3b8dcc4d1f00a66291600bffa7ef50106bc34e02580edc7b71f0728482d48752651
+1c4c7f33fd4d80f9e3e68f0368d3b64d5b00f74cf74ce3df75fe0b1b173606d87d72f749
+80275a3ed112c0ff15ff578012bf2cbd5269e268587ee84401a8e851d103a0f32d9d6f01
+587ef7f2bb01b2776697caa391dc33b96700a29f897e06e0c13e0ff601a8ec57f9923ea5
+37fe4be87f0d6b0092d725af0378e383373e00b8b1cf8d7d002c1f5a3e2cfb815b7a3471
+342cbf2cc689606e55dcaa4852d0aca059923464e4909192d4fba5de2f4952adbb6bdd2d
+49aaa22a92a417f4822429473992248bfefe9ca1566a254945738ae648d2818c03199234
+f7d6b9b74ad2d2d0a5a19274ea93539f489252947271b7c6ff45fd5752254952a10a25e9
+8cf58c5592beccfb324f92220f471e96a41df13be225c966b5594be2fb4a9389a3919143
+c52800d542aa8548d25d1fdcf58124057f1bfcad24b96d76db2c49f611f61192a4a33a2a
+49b2eac203dd5dee926489b0444852fac6f48d92f44de837a19274b0cdc1369264ffc4fe
+496974d5f8ff2fb5533b492aaa5f545f927e6cff637b49dad875635749ca9a9235a5347c
+5f693271343272a81805c0f299e53349b29cb09c90247b983d4c92f4993e9324b9c9ad78
+6dff3693ca529624e93dbd27493aa1132ee9aaf1ff57397e3e5ad192a4655ae60adf579a
+4c1c8d8c1c3287c21b191919955399a79146464646e554a6001819191995539902606464
+64544e650a80919191513995290046464646e554a600181919199553fd3f16c22327d644
+d74d000000227a545874436f6d6d656e74000078da732e4a4d2c494d5128cf2cc95070f7
+f40d0000379d05e2877df6f80000000049454e44ae426082
+HEX
+  }
+1 ;
+package Tmpl ;
+use Exporter ;
+use Carp ;
+our @ISA = qw(Exporter) ;
+
+sub save_as
+  { my $self = shift ;
+    my $dst = shift ;
+    my $tmp = $self -> tmpl ;
+    open DST, '>', $dst or croak "can't write $dst ($!)\n" ;
+    print DST $tmp ;
+    close DST ;
+    chmod 0644, $dst ;
+  }
+sub tmpl
+  { <<'TMPL' ;
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+"http://www.w3.org/TR/html4/loose.dtd">
+<html><head>
+<title>iim scoreboard</title>
+<meta http-equiv="content-type" CONTENT="text/html; charset=UTF-8">
+<meta http-equiv=refresh CONTENT=%REFRESH%>
+<style type="text/css">
+body
+  { background-color: #FFFFF0 ; }
+
+h1, h2, h3, h4, h5, hr
+  { color : #007CB9 ; }
+
+div.legenda
+  { font-size  : smaller ; }
+
+div.iim_scb table
+  { border : 1px solid black ; }
+
+div.iim_scb th
+  { border  : 1px solid black ;
+    padding : 4px ;
+  }
+
+div.iim_scb td
+  { border  : 1px solid black ;
+    padding : 4px ;
+  }
+
+div.iim_scb th.left  { text-align : left  ; }
+div.iim_scb th.right { text-align : right ; }
+div.iim_scb td.left  { text-align : left  ; }
+div.iim_scb td.right { text-align : right ; }
+
+div.iim_scb th.fill
+  { border  : 1px solid ;
+    padding : 0px ;
+    width   : 1px ;
+    border-color : #007CB9 ;
+    background-color : #007CB9 ;
+  }
+
+div.iim_scb td.fill
+  { border       : 1px ;
+    border-style : solid ;
+  }
+
+div.iim_scb th.title
+  { border     : 1px solid black ;
+    padding    : 4px     ;
+    color      : white   ;
+    background : #007CB9 ;
+    font-size  : larger  ;
+  }
+
+div.iim_scb div.tab
+  { border-width  : 2px  ;
+    border-style  : solid ;
+    border-color  : #007CB9 ;
+    margin-top    : 1ex  ;
+    margin-left   : 3ex  ;
+    margin-right  : 1ex  ;
+    margin-bottom : 0em  ;
+    float         : left ;
+  }
+
+div.iim_scb span.iim_red { color : red ; }
+</style>
+</head>
+<body>
+
+<DIV STYLE="float:right">
+<a href="%SITE%/"><img src="%LOGO%" BORDER=0 alt="[IIM]"></a>
+</DIV>
+
+<h2>iim scoreboard</h2>
+
+<DIV CLASS=iim_scb>
+%TABLES%
+</DIV>
+
+<br clear=all>
+
+<div class=legenda>
+<ul>
+<li><b>loops</b> : <b>iim</b> rsyncs twice per loop ;
+  this <b>iim</b> sleeps %SML% seconds between loops.
+<li><b>events</b> : an <i>event</i> is a
+  (<i>time, path</i>, <i>type</i>) tuple,
+where <i>type</i> <small>&isin;</small> <i>{ new, delete }</i> ;
+  <br>
+  &minus; both new files and file updates are represented by <i>new</i>
+    events ;
+  <br>
+  &minus; the <i>RECENT</i> files (<code>RECENT-*.json</code>) contain
+    the event stream ;
+  <br>
+  &minus; the updates of <i>RECENT</i> files are <i>not</i> represented in
+    the event stream.
+<li><b>&rarr; discarded</b> : <i>new</i> events where file <i>path</i>
+  does not exist in the remote archive.
+<li><b>files fetched</b> : files fetched in full syncs are <i>not</i> included
+<li><b>&rarr; new files</b> : a fetched file is a <i>new file</i> if
+  it doesn't exist yet in the local archive.
+<li><b>links fetched</b> : counts <i>new</i> events where fetching
+  <i>path</i> results in a symlink.
+<li><b>dud deletes</b> : counts <i>delete</i> events where file
+  <i>path</i> does not exist.
+<li><b>time sync errors</b> : time spent waiting for (loop &amp; full) syncs
+  that ended in error.
+<li><b>sync in/out</b> : bandwidth based on <b>--stats</b> ; lowerbound ;
+  full syncs are <i>not</i> included.
+<li><b>bandwidth files</b> : based on <i>files fetched</i> ;
+  <b>b/s</b> == <i>bits per second</i> ;
+  <br>
+  upperbound because rsync compression (option <tt>-z</tt>) is not taken
+  into account.
+</ul>
+</div>
+
+<hr noshade="noshade" size="1">
+<DIV STYLE="float:right">
+<a href="http://validator.w3.org/check?uri=referer"><img
+src="http://www.staff.science.uu.nl/~penni101/icons/valid-html401-blue.png"
+border=0 alt="valid-html401"></a>
+</DIV>
+%DATE%
+&rarr; next &rarr;
+%NEXT%
+-
+<a href="http://www.staff.science.uu.nl/~penni101/iim/">%VERSION%</a>
+</body>
+</html>
+TMPL
+  }
+1 ;
+package main ;
+
+# -----------------------------------------------------------------------
+
+
+# use Devel::Gladiator qw(walk_arena arena_ref_counts arena_table);
+BEGIN { Blib -> import () ; }
+BEGIN { RF -> import () ; }
+
+my @ARGS     = @ARGV ;
+my @CNF_KEYS = Blib::Mods::Conf -> CNF_KEYS ;
+my $CNF_KEYS = join "\n  --", @CNF_KEYS ;
+my $SYN = '[-v] [-q] [-d] [-t] [-f] [-m] [-daemon tag] [-e e] [-c conf] '
+  . '[config-options]' ;
+
+my $prog = PRG () ;
+my $Usage = <<USAGE ;
+Usage: $prog [$prog-options] [config-options]
+iim-options :
+ -v : be verbose
+ -q : be quiet
+ -d : show debug info
+ -t : only test the config
+ -f : on startup, do a full sync
+ -m : compare with master ; execs an 'rsync -n'
+ -daemon <tag>
+    : start as daemon ; creates directory <tag> ;
+      <tag> must be alpha-numeric (eg 'run').
+ -e <e>
+    : init with epoch <e> (1308313869, -10m, -1h etc)
+ -c <conf>
+    : use config file <conf>
+config-options :
+  --$CNF_KEYS
+USAGE
+sub Usage { die "$_[0]$Usage" ; }
+sub Error { die "$prog: $_[0]\n" ; }
+sub Warn  { warn "$prog: $_[0]\n" ; }
+
+# usage: &GetOptions(ARG,ARG,..) defines $opt_ID as 1 or user spec'ed value
+# usage: &GetOptions(\%opt,ARG,ARG,..) defines $opt{ID} as 1 or user value
+# ARG = 'ID' | 'ID=SPC' | 'ID:SPC' for no-arg, required-arg or optional-arg
+# ID  = perl identifier
+# SPC = i|f|s for integer, fixedpoint real or string argument
+
+use Getopt::Long ;
+Getopt::Long::config('no_ignore_case') ;
+Getopt::Long::config('no_auto_abbrev') ;
+my %opt = () ; Usage('') unless GetOptions
+  ( \%opt
+  , ( qw(v q d e=s f m tag=s t c=s daemon=s version revision syn B=s)
+    , map { "$_=s" ; } @CNF_KEYS
+    )
+  ) ;
+Usage("too many arguments (@ARGV)\n") unless @ARGV == 0 ;
+
+if ( $opt{daemon} )
+  { my $opt = $opt{daemon} ;
+    if ( $opt =~ /^-/ )
+      { Usage "Option daemon requires an argument.\n" ; }
+    elsif ( $opt !~ m!^(.*/)?\w+$! )
+      { Error "option 'daemon' ($opt) has non-alpha-numeric tag." ; }
+    elsif ( $opt =~ m!^(.*)/! )
+      { my $d = $1 ;
+        Error "option 'daemon' ($opt) ; can't find directory '$d'."
+          unless -d $d ;
+      }
+  }
+elsif ( $opt{tag} )
+  { Blib::Mods::Conf -> set_CNF_default ( qw(sleep_main_loop 5m) ) ; }
+
+$opt{v} ||= $opt{d} ;
+
+Blib -> debug ( 0 ) ;
+my $R    = RF -> make ( -root => $opt{c}, %opt ) ; # or die
+my $conf = $R -> conf ;
+
+$conf -> show if $opt{d} ;
+
+if ( $opt{version}  ) { printf "%s\n", RF -> version  ; exit ; }
+if ( $opt{revision} ) { printf "%s\n", RF -> Revision ; exit ; }
+if ( $opt{syn } )    { printf "%s\n", $SYN ; exit ; }
+if ( $opt{m} )       { $R -> compare ; exit ; }
+if ( $opt{t} )
+  { printf "$prog : no errors detected in config and/or options\n" ;
+    if ( $opt{v} )
+      { printf "$prog : args (%s)\n", join ',', @ARGS ;
+        printf "$prog : using module '%s'\n", LCL_JSON () ;
+        printf "$prog : using module Proc::Daemon '%s'\n"
+          , ( Proc::Daemon -> VERSION || 'undef' ) ;
+        printf "$prog : using config '[%s]'\n"
+          , join ( ',', $conf -> includes ) || 'none' ;
+      }
+    exit ;
+  }
+
+if ( $opt{daemon} )
+  { my $tag = $opt{daemon} ;
+    $R -> start_daemon ( $tag, @ARGS ) ;
+    exit ;
+  }
+elsif ( $opt{tag} )
+  { $R -> be_the_daemon ( $opt{tag} ) ; }
+
+LOGf "=== iim start - pid %d - %s mode ===", $$, $R -> mode ;
+
+$R -> mk_temps ;
+$R -> full_sync_repeat ( 1 ) if $opt{f} or not $R -> have_all_Recents ;
+$R -> link_Recents ;
+
+if ( $opt{e} )
+  { my $epoc = $opt{e} ;
+    LOGf "set EPOCH from opt -e (%s)", $opt{e} ;
+    unless ( $epoc =~ /^\d+(\.\d*)?$/ )
+      { my ( $res, $err ) = $conf -> _secs4spec ( '-e', $epoc ) ;
+        if ( $err ) { LOGx $err ; $R -> _exit ( 1 ) ; }
+        $epoc = int $res ;
+      }
+    $epoc = time + $epoc if $epoc < 0 ;
+    if ( $epoc < time - 7 * 24 * 60 * 60 )
+      { LOGx "epoch in '-e' is more than a week ago" ;
+        $R -> _exit ( 1 ) ;
+      }
+    $R -> set_epoch ( $epoc ) ;
+  }
+else
+  { $R -> init_epoch ; }
+
+$R -> status ( 'looping' ) ;
+$R -> set_next_full or LOGx "no full syncs will be scheduled" ;
+$R -> log_next_exit ;
+$R -> scores -> put_scoreboards if $R -> tag or $R -> verbose ;
+
+my $todo = [] ;
+
+# test by adding a "bogus new event"
+if ( $opt{B} )
+  { my $ev = Blib::JSON::rfile::recent::event -> make
+      ( base  => $R
+      , path  => $opt{B}
+      , type  => 'new'
+      , epoch => 10 + $R -> epoc
+      , ival  => 'xx'
+      ) ;
+    push @$todo, $ev ;
+  }
+
+while ( 1 )
+  { $R -> check_max_run_time ;
+    if ( ! @$todo and $R -> want_full_now )
+      { if ( $R -> full_sync )
+          { $R -> init_epoch ; $R -> set_next_full ; }
+        else
+          { $R -> set_next_full ( 'sleep_init_epoch' ) ; }
+      }
+    else
+      { $R -> scores -> incr_loops ;
+        $R -> get_Recents_repeat ;
+
+        my $events = $R -> find_new_events ;
+        $R -> epoc ( $events -> [ 0 ] -> epoch ) if @$events ;
+
+        if ( @$events or @$todo )
+          { my $work = @$events + @$todo ;
+            $todo = $R -> get_batch ( $events, $todo ) ;
+            my $todos =
+              ( scalar @$todo
+              ? sprintf "\n[ %s\n]", join "\n, "
+                  , map { $_ -> path ; } @$todo
+              : ''
+              ) ;
+            LOGf
+              ( "events done %s todo %s%s"
+              , $work - @$todo
+              , scalar @$todo
+              , $todos
+              ) if $R -> verbose or @$todo ;
+          }
+
+        unless ( @$todo )
+          { $R -> move_Recents ;
+            $R -> try_reload_conf ( %opt ) if $conf -> hot_config ;
+          }
+        $R -> reopen_log if $R -> want_reopen_now ;
+
+        print Blib::MEEK_dump if $opt{d} ;
+#       $R -> dmp if $opt{d} ;
+
+#       my $all = walk_arena();
+#       foreach my $sv ( @$all )
+#         { warn "live object: $sv\n"; }
+#       warn arena_table() ;
+
+        LOGx "*********************************************" if $R -> debug ;
+        $R -> _sleep ( 'sleep_main_loop' ) ;
+     }
+  }
+
+__END__
+=pod
+
+=encoding utf8
+
+=head1 NAME
+
+iim - an instant mirroring client for CPAN
+
+=head1 SYNOPSIS
+
+  iim [-v] [-q] [-d] [-t] [-f] [-m] [-daemon tag] [-e e] [-c conf] [config-options]
+
+=head1 DESCRIPTION
+
+Program B<iim> mirrors CPAN based on a set of I<RECENT> (C<RECENT-*.json>)
+files provided in CPAN.
+
+On start-up, B<iim> compares the state of the local copy of CPAN with
+the master archive.
+If the I<RECENT> files in the local copy indicate that it is incomplete or
+too much out-of-date, B<iim> does a full sync first.
+
+Then,  B<iim> periodically reads the relevant I<RECENT> files from the
+master archive.
+These files contain information about recent updates.
+Program B<iim> uses this information to fetch new files from the master,
+and delete obsolete files in the local copy.
+
+Program B<iim> is controlled by a small configuration file ;
+see section L</"CONFIG FILE">
+-> L<required entries|"config_file : required_entries">.
+
+In I<daemon mode>, B<iim> is properly backgrounded and all output
+is written to a log file.
+Some effort is made to ensure that only one daemon is active
+at any given time.
+
+The L<scoreboard|"scoreboard_file path/to/file"> facility
+provides more information about the running program ;
+it is updated after every run of the main loop.
+
+The config can be I<hot> or I<not> ; if I<hot>, B<iim> will reload
+the config file when you change it.
+
+By default logging is terse ; B<iim> only shows errors and
+relevant (non-periodic) updates.
+With option C<-v> it reports on all events and gives some
+state information when new events were found.
+With option C<-d> it reports on internal actions as well.
+For more information, see also config entry
+L<loglevel|"loglevel quiet|terse|verbose|debug">.
+
+As an option, B<iim> can schedule periodic full rsyncs ; they are
+not necessary even when there are many and/or prolongued network
+failures.
+
+By default, B<iim> will periodically L<rotate|"rotate count [interval]">
+the logfile.
+
+For more information on I<RECENT> files and instant mirroring, see
+
+=over 4
+
+=item * www.cpan.org
+
+L<http://www.cpan.org/misc/how-to-mirror.html#Instant_mirroring>
+
+=item * search.cpan.org
+
+L<http://search.cpan.org/>
+
+Look for C<File::Rsync::Mirror::Recent>
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<-q>
+
+be quiet ;
+see also config entry L<loglevel|"loglevel quiet|terse|verbose|debug">
+
+=item B<-v>
+
+be verbose ;
+see also config entry L<loglevel|"loglevel quiet|terse|verbose|debug">
+
+=item B<-d>
+
+show debug info ;
+see also config entry L<loglevel|"loglevel quiet|terse|verbose|debug">
+
+=item B<-t>
+
+only test the config
+
+=item B<-f>
+
+on startup, do a full sync ; commandline option C<-f> overrides
+config entry L<allow_full_syncs|"allow_full_syncs 0|1"> ; so,
+C<iim -f> will do a full sync even if I<allow_full_syncs> is I<0>.
+
+=item B<-daemon> I<tag>
+
+=item B<-daemon> I<path/to/dir/tag>
+
+run B<iim> in I<daemon> mode :
+A daemon-like B<iim> process is started,
+unless an other B<iim> daemon (with the same I<tag>)
+is already running.
+The process is properly backgrounded.
+
+The I<tag> must be alpha-numeric and directory C<path/to/dir/>
+must exist.
+
+The daemon uses the current directory as it's working directory.
+It creates a directory C<tag> (or C<path/to/dir/tag>) containing :
+
+=over 4
+
+=item * a log-file : C<iim.log>
+
+=item * a pid file : C<iim.pid>
+
+=item * a lock-file : C<iim.lck>
+
+=back
+
+All commandline arguments (except C<-daemon>) are passed to the daemon.
+All (error) output is written to the log I<C<tag>>C</iim.log>.
+The log is re-opened approximately every 5 minutes,
+to make log-rotation easier.
+
+The daemon is best killed with
+
+  kill -9 `cat tag/iim.pid`
+
+Daemon mode uses C<Proc::Daemon> ; by default, the daemon
+exec's C<$0> (C<$PROGRAM_NAME>) ; configure I<prog_iim> if
+that doesn't work for you.
+
+=item B<-e> I<epoch>
+
+init with epoch I<epoch> ; I<epoch> may be given as an I<interval-spec>
+(see option L<sleep_main_loop|"sleep_main_loop interval-spec">).
+
+If I<epoch> is C<negative> then the epoch is set to "time - I<epoch>".
+
+  -e 1307687587.89889
+  -e -30m             # set the epoch to 30 minutes ago
+  -e -2h              # set the epoch to two hours ago
+
+If C<-e> is set, B<iim> does no full sync on start-up ;
+it just processes the update events that happened since I<epoch>.
+
+This option is for testing only.
+
+=item B<-c> I<config-file>
+
+use configuration file I<config-file>
+
+=item B<-m>
+
+compare the local archive with the master ; B<iim> exec's an C<rsync -n>.
+
+=item I<config options>
+
+All config entries can be set on the commandline :
+
+  --entry value
+
+for example
+
+  --local /path/to/CPAN
+  --sleep_main_loop 5m
+
+=back
+
+=head1 CONFIG FILE
+
+=head2 location
+
+The default locations of the config file are :
+
+=over
+
+=item * B<./iim.conf>
+
+=item * B<$HOME/.iim.conf>
+
+=item * B</etc/iim.conf>
+
+=item * B</dev/null> [use default config]
+
+=back
+
+=head2 syntax
+
+A config file looks like this :
+
+  +--------------------------------------------------
+  |# lines that start with '#' are comment
+  |# blank lines are ignored too
+  |# tabs are replaced by a space
+  |
+  |# the config entries are 'key' and 'value' pairs
+  |# a 'key' begins in column 1
+  |# the 'value' is the rest of the line
+  |somekey  part1 part2 part3 ...
+  |otherkey part1 part2 part3 ...
+  |
+  |# keyword EMPTY represents the empty string ;
+  |# in the next line some_key's part2 is set to ''
+  |somekey part1 EMPTY part3 ...
+  |
+  |# indented lines are glued
+  |# the next three lines mean 'somekey part1 part2 part3'
+  |somekey part1
+  |  part2
+  |  part3
+  |
+  |# lines starting with a '+' are concatenated
+  |# the next three lines mean 'somekey part1part2part3'
+  |somekey part1
+  |+ part2
+  |+ part3
+  |
+  |# lines starting with a '.' are glued too
+  |# don't use a '.' on a line by itself
+  |# 'somekey' gets the value "part1\n part2\n part3"
+  |somekey part1
+  |. part2
+  |. part3
+  +--------------------------------------------------
+
+=head2 config file : required entries
+
+=over 4
+
+=item local I<path>
+
+Specify the (full, absolute) path to the local copy of CPAN.
+
+  local /path/to/your/cpan-archive
+
+=back
+
+=head2 config file : optional entries
+
+=over 4
+
+=item temp I<path>
+
+This config entry is now B<obsolete> ;
+please remove it from config file C<iim.conf>.
+
+=item remote I<some.host.org::module>
+
+Optionally specify the rsync-module of the remote server.
+The default is :
+
+  remote cpan-rsync.perl.org::CPAN
+
+If you are testing for I<CPAN tier1>, set
+
+  remote cpan-rsync-master.perl.org::CPAN
+
+Also set config entries C<user> and C<passwd>.
+
+=item user I<login>
+
+Optionally specify the login name to be used in rsync connections.
+The default is EMPTY ; that is, the empty string :
+
+  user EMPTY
+
+=item passwd I<pw>
+
+Optionally specify the password to be used in rsync connections.
+The default is EMPTY ; that is, the empty string :
+
+  passwd EMPTY
+
+The password is passed to C<rsync> in environment-variable
+C<RSYNC_PASSWORD>.
+
+=item sleep_main_loop I<interval-spec>
+
+Optionally specify the interval between runs of the main-loop.
+The default is 1 minute :
+
+  sleep_main_loop 1m
+
+and five minutes in I<daemon> mode.
+
+An B<interval-spec> can be given in seconds (as in B<22> or B<22s>),
+minutes [B<m>],
+hours [B<h>],
+days [B<d>] and/or
+weeks [B<w>].
+
+The I<interval-specs> can be combined in any order :
+
+  dw      # a day and a week
+  7d+24h  # same thing
+  w-0.5h  # a week minus half an hour
+  hm6     # 3666 seconds
+
+=item sleep_init_epoch I<interval-spec>
+
+Optionally specify the interval between retries during start-up.
+The default is fifteen minutes :
+
+  sleep_init_epoch 15m
+
+A start-up is I<retried> if the start-up requires a full sync
+and that sync somehow fails.
+
+=item max_run_time I<interval-spec>
+
+By default B<iim> runs for a limited time,
+so memory leaks will never become a problem.
+
+Optionally specify the maximum time B<iim> may run.
+The default is I<four weeks minus 15 minutes> :
+
+  max_run_time 4w-15m
+
+Setting C<max_run_time> to I<0> means I<no limit>.
+
+Make sure there is a cronjob in place to start an B<iim> daemon
+after B<iim> exits or the mirror host is rebooted.
+
+  MIN * * * * ( cd /your/path/to/iim ; perl iim -f -q -daemon production )
+
+where I<MIN> (minute) is some (randomly chosen) number between 0 and 59.
+
+=item scoreboard_file I<path/to/file>
+
+In each run of the main loop, B<iim> writes the I<scoreboard_file> ;
+it shows the current status of B<iim>, various timers, counters etc.
+The defaul is :
+
+  scoreboard_file /path/to/CPAN/local/iim/iim-scb.html
+
+Actually, you can specify more than one file :
+
+  scoreboard_file
+    /path-to-some-dir/iim-scb.html
+    /path-to-some-dir/iim-scb.json
+
+Depending on the suffix of I<file> (C<.html>, C<.php>, C<.json>),
+B<iim> writes a I<html> page, a I<php> fragament or a I<json> file ;
+plain text is the default.
+
+The I<html> pages are generated using a template I<scoreboard_template>
+(see next item).
+
+The I<json> files (also) contain the values of config entries and defaults.
+
+The I<scoreboard_template> (see next item) contains CSS to properly
+format the scoreboard.
+
+=item scoreboard_template I<path/to/file>
+
+Optionally specify the path to the template for a html scoreboard.
+
+The default is :
+
+  scoreboard_template /path/to/CPAN/local/iim/iim-scb-tmpl.html.sample
+
+This file is re-written when B<iim> starts ; to customise the scoreboard,
+copy the default and configure the new location.
+
+If you copy to another directory, fix the iim-logo I<IMG> tag in
+in the template, or copy C<iim-logo.png> to the other directory.
+
+=item hot_config 0|1
+
+Optionally specify if the config is I<hot> or not. The default is I<not hot> :
+
+  hot_config 0
+
+If/when the config is I<hot>, B<iim> checks the config file for changes :
+if the (timestamp of the) config file changes, it is reloaded unless an
+error is detected.
+
+Use this option with care ; watch the log!
+
+=item loglevel quiet|terse|verbose|debug
+
+Optionally specify the level of logging ; the default is :
+
+  loglevel terse
+
+If the loglevel is I<terse>, B<iim> logs all events except updates
+of files that change very often like C<indices/timestamp.txt>,
+C<RECENT-1h.json> etc.
+
+If the loglevel is I<verbose>, B<iim> reports on all events.
+
+If the loglevel is I<debug>, B<iim> reports on internal actions as well.
+
+Loglevel I<quiet> does not affect event logging ; it is only used
+to let B<iim> quietly attempt to (re)start a daemon.
+
+Precedence : C<-d>, C<-v>, C<-q>, commandline option C<--loglevel>,
+config entry C<loglevel>.
+
+Option C<-q> isn't passed to the I<daemon>, so config entry C<loglevel>
+(or C<--loglevel>) can be effective.
+
+=item rotate count [interval]
+
+Optionally specify logfile rotation ; the default is
+
+  rotate 8 4w
+
+If a I<count> is non-zero, I<count> logfiles are rotated on start-up,
+and again after I<interval>, etc.
+Logfile rotation only applies in I<daemon mode>.
+
+=item full_sync_interval I<interval-spec>
+
+Optionally specify the interval between full rsyncs.
+The default is I<0>, which means I<don't schedule full syncs>.
+
+  full_sync_interval 0
+
+If a full sync fails, a new full sync is scheduled to take place
+I<sleep_init_epoch> later.
+
+If everything works as advertized, full syncs are not necessary.
+
+=item allow_full_syncs 0|1
+
+Optionally specify if full syncs are allowed or not.
+The default is I<1>, which means that full syncs I<are> allowed.
+
+  allow_full_syncs 1
+
+On startup, a full sync is required if the local archive is
+inconsistent (I<RECENT files> are missing) or older than one day.
+
+After startup, B<iim> will do (scheduled) full syncs if,
+and only if, I<full_sync_interval> is set.
+
+B<Iim> will exit if it can't proceed without a full sync,
+and I<allow_full_syncs> is I<0>.
+
+This option is for I<testing> ; it is used to ensure that no full syncs
+will be done in a test environment created by C<setup-test>.
+
+=item prog_rsync I<path/to/file>
+
+Optionally specify where your C<rsync> lives ; the default is :
+
+  prog_rsync /usr/bin/rsync
+
+=item prog_iim I<path/to/file>
+
+Optionally specify where your program C<iim> lives ; the default is :
+
+  prog_iim $PROGRAM_NAME
+
+By default, in daemon mode, C<$PROGRAM_NAME> (C<$0>) is used
+to (re-)exec B<iim>.
+
+=item timeout I<interval-spec>
+
+Optionally specify the default for rsync's C<--timeout> ; the default is :
+
+  timeout 300s
+
+The value is also used to set rsync's C<--contimeout>.
+
+=item iim_umask I<oct-integer>
+
+Optionally specify the I<umask> B<iim> should use ; in octal, as is usual.
+The default is :
+
+  iim_umask 022
+
+Umask C<022> allows rsync to create world readable files and directories.
+Often C<cron> runs with a more restrictive umask (C<077>).
+This leads to permission problems in the archive.
+
+=item include I<path/to/file>
+
+Include another B<iim> config file in situ. It is a fatal error
+to include the same file twice.
+
+=back
+
+=head1 INSTALL
+
+=head2 requirements
+
+B<Iim> requires Perl modules C<JSON> (or C<JSON::PP>) and C<Time::HiRes>.
+Your yum repository may have C<perl-Time-HiRes>.
+You may want to install these modules as B<root>.
+
+=over 4
+
+=item *
+
+Get C<cpanm> :
+
+  # curl --compressed -LO http://xrl.us/cpanm
+  # chmod +x ./cpanm
+
+=item *
+
+Install Perl modules C<JSON> (or C<JSON::PP>) and C<Time::HiRes> :
+
+  # ./cpanm JSON
+  # ./cpanm Time::HiRes
+
+If installing C<JSON> fails, install C<JSON::PP> (Pure Perl) instead.
+
+=back
+
+B<Iim> requires that your CPAN archive is either empty or complete :
+the last rsync (if any) completed successfully.
+The archive doesn't have to be up-to-date.
+If you are not sure, run rsyncs until one succeeds.
+
+  rsync -av --delete cpan-rsync.perl.org::CPAN/ /path/to/CPAN/
+
+Later, such full rsyncs aren't necessary because B<iim> makes sure
+the archive is always (in some sense) I<complete>.
+
+=head2 installation
+
+Installation is simple :
+
+=over 4
+
+=item * fetch the source
+
+(I<prefered>) checkout the svn repository :
+
+  svn co https://svn.science.uu.nl/repos/sci.penni101.iim/trunk/ iim
+
+or get the package (same stuff) from :
+
+  -- http://www.staff.science.uu.nl/~penni101/iim/iim.tar.gz
+  -- rsync.cs.uu.nl::iim
+
+or get the bleeding edge from :
+
+  -- http://ftp.cs.uu.nl/pub/PERL/iim-test/
+  -- http://ftp.cs.uu.nl/pub/PERL/iim-test.tar.gz
+  -- rsync.cs.uu.nl::iim-test
+
+=item * make a configuration file
+
+Create a file C<iim.conf> ; a sample is in C<iim.conf.sample> :
+
+  local  /path/to/CPAN
+
+
+Point I<local> to your CPAN archive.
+
+Specify a full (not relative) pathname like C</path/to/CPAN/>.
+
+If you are using C<cpan-rsync-master.perl.org>, add
+
+  remote cpan-rsync-master.perl.org::CPAN
+  user   your-cpan-username
+  passwd your-cpan-password
+
+=item * check the config
+
+  perl iim -t
+
+=item * run
+
+You may want to do some L<testing|testing>, or simply run B<iim> with :
+
+  perl iim -v
+
+B<Iim> immediately starts tracking the changes in the
+CPAN master, picking up where the last sync left off.
+
+Only if your CPAN archive is more than 2 days old,
+a full sync is done first.
+
+=item * scoreboard
+
+The I<scoreboard> is in
+
+  /path/to/CPAN/local/iim/iim-scb.html
+
+=item * daemon mode
+
+B<Iim> is intended to run in the background, as a daemon process.
+Try I<daemon mode> with :
+
+  perl iim -daemon production
+
+Watch the logfile with :
+
+  tail -f production/iim.log
+
+=item * production
+
+Configure more L<options|config file : optional entries>
+that fit your situation.
+See L<the next section|production> for more tips on using B<iim>
+in production.
+
+Make sure you have a cronjob in place to start a fresh B<iim> daemon
+(see next section B<production>).
+
+=back
+
+=head2 production
+
+Here are some things to keep in mind when you use B<iim> in production :
+
+=over 4
+
+=item *
+
+B<iim> is meant to be used in C<-daemon> mode.
+
+=item *
+
+To prevent memory leaks from ever becoming a problem,
+B<iim> runs for a limited time by default.
+
+To ensure that B<iim> is always running, install a cronjob like :
+
+  MIN * * * * ( cd /your/path/to/iim ; perl iim -f -q -daemon production )
+
+where I<MIN> (minute) is some (randomly chosen) number between 0 and 59.
+
+The cronjob will try to start a fresh B<iim> daemon ; it will quietly
+exit if another daemon is already running.
+
+Option C<-f> will force a full sync on startup, even if your mirror
+is reasonable up to date ; this shouldn't be necessary, but occasionally
+CPAN's I<instant mirroring> appears to miss some events.
+Using C<-f> corrects such errors ; normally, once a month.
+
+Use C<crontab -l> to list your cronjobs.
+
+=item *
+
+If you make your CPAN mirror available by rsync, please add
+
+  excludes = /local/
+
+to the [CPAN] module description in your C<rsyncd.conf> file.
+
+=item *
+
+After installation, program B<iim> can be moved anywhere.
+
+You can run B<iim> without a config file ; use a cronjob like
+
+  MIN * * * * /path/to/iim -q -daemon /path/to/tag --local /path/to/CPAN
+
+=back
+
+=head2 testing
+
+Testing B<iim> doesn't touch your CPAN archive, and doesn't need
+(or make) a local CPAN archive.
+
+You set up a little test environment with :
+
+  perl -w setup-test [testenv]
+
+Basicly, B<setup-test> does :
+
+  mkdir testenv
+  mkdir testenv/CPAN
+
+  # makes "testenv/iim.conf" containing :
+
+    local testenv/CPAN
+    sleep_main_loop 15s
+    max_run_time 15m
+    allow_full_syncs 0
+
+  # seeds the test-archive testenv/CPAN/
+  # from cpan-rsync.perl.org::CPAN/RECENT-*.json
+
+You can check the test-config with :
+
+  perl iim -t -c testenv/iim.conf
+
+... and run the test with :
+
+  perl iim -c testenv/iim.conf -v
+
+... or try daemon mode with :
+
+  perl iim -c testenv/iim.conf -v -daemon testenv
+
+The test never does a full rsync ; it just picks up the
+CPAN updates and applies them to C<testenv/CPAN/>.
+
+If you kill (or suspend) B<iim> and restart (or resume)
+it later (say afer an hour), you can see that B<iim>
+picks up where it was when you stopped it.
+
+If/when you test B<iim> with a full CPAN archive, you can
+use C<iim -m> to do a full compare of the local archive
+and the master ; C<iim -m> just exec's the proper C<rsync -n>.
+
+=head1 UPGRADE
+
+=over 4
+
+=item *
+
+Before upgrading, always check the RELEASE-NOTES in
+L<svn|http://people.cs.uu.nl/henkp/iim/svn/RELEASE-NOTES>
+or the
+L<bleeding edge|http://ftp.cs.uu.nl/pub/PERL/iim-test/RELEASE-NOTES> ;
+see top of page under I<UPGRADE>.
+
+=item *
+
+It is safe to do an svn update :
+
+  svn up
+
+or download the package and copy everything to your B<iim> directory.
+
+=back
+
+=head1 TODO
+
+=over 4
+
+=item * randomize full_sync_interval, sleep_init_epoch
+
+=item * switch to git
+
+=back
+
+=head1 THANKS
+
+A big thanks to Andreas J. König for patiently explaining the details
+of I<RECENT> files to the author.
+
+=head1 AUTHOR
+
+=begin html
+
+  <p>
+  &copy; 2011-2015
+  <a href="http://www.staff.science.uu.nl/~penni101/">Henk P. Penning</a>,
+  <a href="http://www.uu.nl/faculty/science/EN/">Faculty of Science</a>,
+  <a href="http://www.uu.nl/">Utrecht University</a>
+  <br />
+  iim version 0.4.13 - Fri Jan  9 08:55:10 2015 - dev revision 104
+  </p>
+  <hr />
+
+<p>
+<a href="http://validator.w3.org/check?uri=referer"><img
+src="http://www.w3.org/Icons/valid-xhtml10" style="border-width:0"
+alt="Valid XHTML 1.0 Strict" height="31" width="88" /></a>
+&nbsp;
+<a href="http://jigsaw.w3.org/css-validator/check/referer">
+<img style="border:0;width:88px;height:31px" alt="Valid CSS!"
+src="http://jigsaw.w3.org/css-validator/images/vcss" /></a>
+</p>
+
+=end html
+
+=begin man
+
+  (c) 2011-2015 Henk P. Penning
+  Faculty of Science, Utrecht University
+  http://www.staff.science.uu.nl/~penni101/ -- penning@uu.nl
+  iim version 0.4.13 - Fri Jan  9 08:55:10 2015 - dev revision 104
+
+=end man
+
+=cut
