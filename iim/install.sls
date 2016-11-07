@@ -10,4 +10,4 @@
 manage iim:
   file.recurse:
     - name: /home/{{iim.user}}/iim-client
-    - source: salt://iim/files/iim
+    - source: salt://iim/files/iim-client
