@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # vim: ft=yaml
-template:
-  pkg: template
-  config: '/etc/template'
-  service:
-    name: template
+iim:
+  dir: '/home/iim/iim-client'
+  user: 'iim'
+  conf: '/home/iim/iim-client/iim.conf'

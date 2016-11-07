@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
 # vim: ft=sls
 
-{% from "template/map.jinja" import template with context %}
+{% from "iim/map.jinja" import iim with context %}
 
-template-pkg:
-  pkg.installed:
-    - name: {{ template.pkg }}
+{{iim.user}}:
+  user.present:
+    - home: /home/{{iim.user}}
+
+manage iim:
+  file.recurse:
+    - name: /home/{{iim.user}}/iim-client
+    - source: salt://iim/files/iim
