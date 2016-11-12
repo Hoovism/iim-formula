@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 # vim: ft=yaml
 iim:
-  dir: '/home/iim/iim-client'
-  user: 'iim'
-  conf: '/home/iim/iim-client/iim.conf'
+  user: iim
+  ugroup: iim
+  uhome: /home/iim
+  client_subdir: iim-client
+  client_conf: iim.conf
+  cpan_local: /srv/pub/CPAN
+  cpan_remote: rsync.hoovism.com::CPAN
