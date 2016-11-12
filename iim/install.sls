@@ -9,18 +9,6 @@
     - groups:
       - {{iim.ugroup}}
 
-perl:
-  pkg.installed: []
-
-perl-JSON:
-  pkg.installed: []
-
-perl-Time-HiRes:
-  pkg.installed: []
-
-perl-Getopt-Long:
-  pkg.installed: []
-
 iim install:
   file.recurse:
     - name: {{iim.uhome}}/{{iim.client_subdir}}
